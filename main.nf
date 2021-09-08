@@ -401,8 +401,12 @@ if(params.multiqc){
         log.warn """Sample $barcode : Racon correction for cluster $cluster_id failed due to not enough overlaps. Taking draft read as consensus"""
         racon_warnings.add("""Sample $barcode : Racon correction for cluster $cluster_id failed due to not enough overlaps. Taking draft read as consensus""")
      }
+     /*
+     for some reason including the model was causing medaka to fail -m r941_min_high_g303 - so removed
+     */
+
      """
-     if medaka_consensus -i $corrected_reads -d $draft -o consensus_medaka.fasta -t 4 -m r941_min_high_g303 ; then
+     if medaka_consensus -i $corrected_reads -d $draft -o consensus_medaka.fasta -t 4 ; then
         echo "Command succeeded"
      else
         cat $draft > consensus_medaka.fasta
