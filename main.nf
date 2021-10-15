@@ -323,7 +323,7 @@ if(params.multiqc){
      cluster_id=cluster_log.baseName
      """
      head -n\$(( $count*4 )) $reads > subset.fastq
-     canu -correct -p corrected_reads -nanopore-raw subset.fastq genomeSize=${params.avg_amplicon_size} stopOnLowCoverage=1 minInputCoverage=2 minReadLength=500 minOverlapLength=200
+     canu -correct -p corrected_reads -nanopore-raw subset.fastq genomeSize=${params.avg_amplicon_size} stopOnLowCoverage=1 minInputCoverage=2 minReadLength=500 minOverlapLength=200 useGrid=false
      gunzip corrected_reads.correctedReads.fasta.gz
      READ_COUNT=\$(( \$(awk '{print \$1/2}' <(wc -l corrected_reads.correctedReads.fasta)) ))
      cat $cluster_log > ${cluster_id}_racon.log
