@@ -4,4 +4,5 @@ channels:
   - bioconda
   - defaults
 dependencies:
+  - krb5 =1.19.2 #build hac12032_0 (because build hac12032_2 throws errors)
   - medaka =1.0.3
