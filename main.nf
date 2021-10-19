@@ -435,7 +435,7 @@ if(params.multiqc){
      else {
          blast_dir = "/tmp/"
      }
-     db=blast_dir + params.db
+     db=params.db
      taxdb=blast_dir + params.tax
 
      if(!params.db)
