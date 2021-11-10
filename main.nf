@@ -426,38 +426,56 @@ if(params.multiqc){
 
      output:
      file('consensus_classification.csv')
-     tuple val(barcode), file('*_blast.log') into classifications_ch
+     tuple val(barcode), file('*_classification.log') into classifications_ch
 
      script:
-     if(workflow.profile == 'conda' || workflow.profile == 'test,conda'){
-         blast_dir = "$baseDir/"
-     }
-     else {
-         blast_dir = "/tmp/"
-     }
-     db=params.db
-     taxdb=blast_dir + params.tax
 
-     if(!params.db)
-        """
-        blastn -query $consensus -db nr -remote -entrez_query "Bacteria [Organism]" -task blastn -dust no -outfmt "10 staxids sscinames evalue length score pident" -evalue 11 -max_hsps 50 -max_target_seqs 5 > consensus_classification.csv
-        cat $cluster_log > ${cluster_id}_blast.log
-        echo -n ";" >> ${cluster_id}_blast.log
-        BLAST_OUT=\$(cut -d";" -f1,2,4,5 consensus_classification.csv | head -n1)
-        echo \$BLAST_OUT >> ${cluster_id}_blast.log
-        """
+     if(params.classification=='blast'){
+         if(workflow.profile == 'conda' || workflow.profile == 'test,conda'){
+             blast_dir = "$baseDir/"
+         }
+         else {
+             blast_dir = "/tmp/"
+         }
 
-    else
-        """
-        export BLASTDB=
-        export BLASTDB=\$BLASTDB:$taxdb
-        blastn -query $consensus -db $db -task blastn -dust no -outfmt "10 sscinames staxids evalue length pident" -evalue 11 -max_hsps 50 -max_target_seqs 5 | sed 's/,/;/g' > consensus_classification.csv
-        #DECIDE FINAL CLASSIFFICATION
-        cat $cluster_log > ${cluster_id}_blast.log
-        echo -n ";" >> ${cluster_id}_blast.log
-        BLAST_OUT=\$(cut -d";" -f1,2,4,5 consensus_classification.csv | head -n1)
-        echo \$BLAST_OUT >> ${cluster_id}_blast.log
-        """
+         db=params.db
+         taxdb=blast_dir + params.tax
+         if(!params.db)
+             """
+             echo "chosen classification: blast"
+             blastn -query $consensus -db nr -remote -entrez_query "Bacteria [Organism]" -task blastn -dust no -outfmt "10 staxids sscinames evalue length score pident" -evalue 11 -max_hsps 50 -max_target_seqs 5 > consensus_classification.csv
+             cat $cluster_log > ${cluster_id}_classification.log
+             echo -n ";" >> ${cluster_id}_classification.log
+             BLAST_OUT=\$(cut -d";" -f1,2,4,5 consensus_classification.csv | head -n1)
+             echo \$BLAST_OUT >> ${cluster_id}_classification.log
+             """
+
+         else
+             """
+             echo "chosen classification: blast"
+             export BLASTDB=
+             export BLASTDB=\$BLASTDB:$taxdb
+             blastn -query $consensus -db $db -task blastn -dust no -outfmt "10 sscinames staxids evalue length pident" -evalue 11 -max_hsps 50 -max_target_seqs 5 | sed 's/,/;/g' > consensus_classification.csv
+             #DECIDE FINAL CLASSIFFICATION
+             cat $cluster_log > ${cluster_id}_classification.log
+             echo -n ";" >> ${cluster_id}_classification.log
+             BLAST_OUT=\$(cut -d";" -f1,2,4,5 consensus_classification.csv | head -n1)
+             echo \$BLAST_OUT >> ${cluster_id}_classification.log
+             """
+     }
+
+     if(params.classification=='seqmatch'){
+         db=params.db
+         accession=params.accession
+         """
+         echo "chosen classification: seqmatch"
+         SequenceMatch seqmatch -k 1 $db $consensus | cut -f2 | join -t \$'\t' -1 1 -2 1 -o 2.2,2.3 - $accession | sed 's/\t/;/g' > consensus_classification.csv
+         cat $cluster_log > ${cluster_id}_classification.log
+         echo -n ";" >> ${cluster_id}_classification.log
+         SEQ_OUT=\$(cat consensus_classification.csv)
+         echo \$SEQ_OUT >> ${cluster_id}_classification.log
+         """
+     }
  }
 
  process join_results {
@@ -470,13 +488,23 @@ if(params.multiqc){
      tuple val(barcode), file('*.nanoclust_out.txt') into output_table_ch
 
      script:
-     """
-     echo "id;reads_in_cluster;used_for_consensus;reads_after_corr;draft_id;sciname;taxid;length;per_ident" > ${barcode}.nanoclust_out.txt
+     if(params.classification=='blast')
+        """
+        echo "id;reads_in_cluster;used_for_consensus;reads_after_corr;draft_id;sciname;taxid;length;per_ident" > ${barcode}.nanoclust_out.txt
 
-     for i in $logs; do
-        cat \$i >> ${barcode}.nanoclust_out.txt
-     done
-     """
+        for i in $logs; do
+            cat \$i >> ${barcode}.nanoclust_out.txt
+        done
+        """
+    if(params.classification=='seqmatch')
+        """
+        echo "id;reads_in_cluster;used_for_consensus;reads_after_corr;draft_id;sciname;taxid" > ${barcode}.nanoclust_out.txt
+
+        for i in $logs; do
+            cat \$i >> ${barcode}.nanoclust_out.txt
+        done
+        """
+
      
  }
 
