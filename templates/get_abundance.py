@@ -36,7 +36,7 @@ def get_abundance_values(names,paths):
         rel_abundance=[]
 
         for index,row in data.iterrows():
-            rel_abundance.append(row['reads_in_cluster'] / total)
+            rel_abundance.append(row['reads_in_cluster'] / total * 100)
             
         data['rel_abundance'] = rel_abundance
         dfs.append(pd.DataFrame({'taxid': data['taxid'], 'rel_abundance': rel_abundance}))
@@ -48,7 +48,8 @@ def merge_abundance(dfs,tax_level):
     df_final = reduce(lambda left,right: pd.merge(left,right,on='taxid',how='outer').fillna(0), dfs)
     df_final["taxid"] = [get_taxname(row["taxid"], tax_level) for index, row in df_final.iterrows()]
     df_final_grp = df_final.groupby(["taxid"], as_index=False).sum()
-    return df_final_grp
+    df_final_sorted = df_final_grp.sort_values(by='rel_abundance', ascending=False)
+    return df_final_sorted
 
 def get_abundance(names,paths,tax_level):
     if(not isinstance(paths, list)):
