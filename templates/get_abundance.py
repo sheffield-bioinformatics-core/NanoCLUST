@@ -22,10 +22,12 @@ def get_taxname(tax_id,tax_level):
     #Checks for API correct response (field containing the tax name). Thanks to devinbrown from Github
     try:
         name = json.loads(complete_tax)[0][tax_level_tag]
+        if name == "":
+            name = json.loads(complete_tax)[0]["taxon_name"]
     except:
         name = str(int(tax_id))
 
-    return json.loads(complete_tax)[0][tax_level_tag]
+    return name
 
 def get_abundance_values(names,paths):
     dfs = []
