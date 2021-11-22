@@ -469,7 +469,7 @@ if(params.multiqc){
          accession=params.accession
          """
          echo "chosen classification: seqmatch"
-         SequenceMatch seqmatch -k 5 $db $consensus | cut -f2 | join -t \$'\t' -1 1 -2 1 -o 2.3,2.5,2.4 --nocheck-order - $accession | sed 's/\t/;/g' > consensus_classification.csv
+         SequenceMatch seqmatch -k 5 $db $consensus | cut -f2,4 | sort | join -t \$'\t' -1 1 -2 1 -o 2.3,2.5,2.4,1.2 - $accession | sort -k4 -n -r -t '\t' | sed 's/\t/;/g' > consensus_classification.csv
          cat $cluster_log > ${cluster_id}_classification.log
          echo -n ";" >> ${cluster_id}_classification.log
          SEQ_OUT=\$(head -n1 consensus_classification.csv)
@@ -498,7 +498,7 @@ if(params.multiqc){
         """
     if(params.classification=='seqmatch')
         """
-        echo "id;reads_in_cluster;used_for_consensus;reads_after_corr;draft_id;sciname;taxid;accession" > ${barcode}.nanoclust_out.txt
+        echo "id;reads_in_cluster;used_for_consensus;reads_after_corr;draft_id;sciname;taxid;accession;seqmatch_score" > ${barcode}.nanoclust_out.txt
 
         for i in $logs; do
             cat \$i >> ${barcode}.nanoclust_out.txt
