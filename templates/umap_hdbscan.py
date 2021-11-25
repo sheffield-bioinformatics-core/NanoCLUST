@@ -13,14 +13,21 @@ df = pd.read_csv("$kmer_freqs", delimiter="\t")
 #UMAP
 motifs = [x for x in df.columns.values if x not in ["read", "length"]]
 X = df.loc[:,motifs]
-X_embedded = umap.UMAP(n_neighbors=15, min_dist=0.1, verbose=2).fit_transform(X)
+X_embedded = umap.UMAP(n_neighbors=int($params.umap_n_neighbors), min_dist=int($params.umap_min_dist), verbose=2).fit_transform(X)
 
 df_umap = pd.DataFrame(X_embedded, columns=["D1", "D2"])
 umap_out = pd.concat([df["read"], df["length"], df_umap], axis=1)
 
+if $params.min_samples == "n":
+    min_samp = None
+else:
+    min_samp = int($params.min_samples)
+
+print(min_samp)
+
 #HDBSCAN
 X = umap_out.loc[:,["D1", "D2"]]
-umap_out["bin_id"] = hdbscan.HDBSCAN(min_cluster_size=int($params.min_cluster_size), cluster_selection_epsilon=int($params.cluster_sel_epsilon)).fit_predict(X)
+umap_out["bin_id"] = hdbscan.HDBSCAN(min_cluster_size=int($params.min_cluster_size), cluster_selection_epsilon=int($params.cluster_sel_epsilon), min_samples=min_samp).fit_predict(X)
 
 #PLOT
 plt.figure(figsize=(20,20))

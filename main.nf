@@ -26,8 +26,11 @@ def helpMessage() {
 
     UMAP and HDBSCAN clustering parameters:
       --umap_set_size               Number of reads used to perform the UMAP+HDBSCAN clustering (100000)
+      --umap_n_neighbors            The size of the local neighborhood UMAP will look at when attempting to learn the manifold structure of the data (15)
+      --umap_min_dist               The minimum distance apart that points are allowed to be in the low dimensional representation. (0.1)
       --cluster_sel_epsilon         Minimun distance to separate clusters. (0.5)
       --min_cluster_size            Minimum number of reads to call a independent cluster (100)
+      --min_samples                 Measure of how conservative the clustering should be. Default is None.
       --min_read_length             Minimum number of base pair in sequence reads (1400)
       --max_read_length             Maximum number of base pair in sequence reads (1700)
       --avg_amplicon_size               Average size for the sequenced amplicon (ie: 1.5k for 16S/1.8k for 18S)
@@ -44,7 +47,6 @@ def helpMessage() {
       --demultiplex                 Set this parameter if you file is a pooled sample
       --demultiplex_porechop        Same as --demultiplex but uses Porechop for the task
       --kit                         (Only with --demultiplex) Barcoding kit (RAB204) {Auto,PBC096,RBK004,NBD104/NBD114,PBK004/LWB001,RBK001,RAB204,VMK001,PBC001,NBD114,NBD103/NBD104,DUAL,RPB004/RLB001}
-      --umap_set_size               Number of reads used to perform the UMAP+HDBSCAN clustering (100000)
       --cluster_sel_epsilon         Minimun distance to separate clusters. (0.5)
       --min_cluster_size            Minimum number of reads to call a independent cluster (100)
       --polishing_reads             Number of reads used for polishing (100)
