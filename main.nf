@@ -33,7 +33,7 @@ def helpMessage() {
       --min_samples                 Measure of how conservative the clustering should be. Default is None.
       --min_read_length             Minimum number of base pair in sequence reads (1400)
       --max_read_length             Maximum number of base pair in sequence reads (1700)
-      --avg_amplicon_size               Average size for the sequenced amplicon (ie: 1.5k for 16S/1.8k for 18S)
+      --avg_amplicon_size           Average size for the sequenced amplicon (ie: 1.5k for 16S/1.8k for 18S)
 
     Canu consensus correction options:
       --stopOnLowCoverage           Default (1)

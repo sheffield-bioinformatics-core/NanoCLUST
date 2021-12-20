@@ -41,7 +41,7 @@ def get_abundance_values(names,paths):
             rel_abundance.append(row['reads_in_cluster'] / total * 100)
             
         data['rel_abundance'] = rel_abundance
-        dfs.append(pd.DataFrame({'taxid': data['taxid'], 'rel_abundance': rel_abundance}))
+        dfs.append(pd.DataFrame({'taxid': data['taxid'], 'rel_abundance': rel_abundance, 'reads': data['reads_in_cluster']}))
         data.to_csv("" + name + "_nanoclust_out.txt")
 
     return dfs
