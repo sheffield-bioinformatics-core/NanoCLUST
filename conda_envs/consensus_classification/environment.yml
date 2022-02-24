@@ -6,3 +6,4 @@ channels:
 dependencies:
   - blast =2.10.1
   - rdptools
+  - kraken2

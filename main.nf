@@ -436,7 +436,7 @@ if(params.multiqc){
  }
 
  process consensus_classification {
-     publishDir "${params.outdir}/${barcode}/cluster${cluster_id}", mode: 'copy', pattern: 'consensus_classification.csv'
+     publishDir "${params.outdir}/${barcode}/cluster${cluster_id}", mode: 'copy', pattern: ['consensus_classification.csv', 'classification_out.tsv']
      time '3m'
      errorStrategy { sleep(1000); return 'retry' }
      maxRetries 5
@@ -446,13 +446,14 @@ if(params.multiqc){
 
      output:
      file('consensus_classification.csv')
+     file('classification_out.tsv') optional true
      tuple val(barcode), file('*_classification.log') into classifications_ch
 
      script:
-     db = resolve_blast_db_path(params.db)
-     taxdb = resolve_blast_db_path(params.tax)
-
      if(params.classification=='blast'){
+         db = resolve_blast_db_path(params.db)
+         taxdb = resolve_blast_db_path(params.tax)
+
          if(workflow.profile == 'conda' || workflow.profile == 'test,conda'){
              blast_dir = "$baseDir/"
          }
@@ -498,6 +499,18 @@ if(params.multiqc){
          echo \$SEQ_OUT >> ${cluster_id}_classification.log
          """
      }
+
+     if(params.classification=='kraken2'){
+         db=params.db
+         """
+         echo "chosen classification: kraken2"
+         kraken2 --db $db --report consensus_classification.csv --output classification_out.tsv $consensus
+         cat $cluster_log > ${cluster_id}_classification.log
+         echo -n ";" >> ${cluster_id}_classification.log
+         KR_OUT=\$(sed 's/\t/;/g' consensus_classification.csv | tr -s ' ' | sed 's/; /;/g' | cut -d ';' -f3,4,5,6 | grep -v '^0' | awk 'BEGIN {FS=";"; OFS=";"} {print \$4, \$3, \$2}')
+         echo \$KR_OUT >> ${cluster_id}_classification.log
+         """
+     }
  }
 
  process join_results {
@@ -526,8 +539,15 @@ if(params.multiqc){
             cat \$i >> ${barcode}.nanoclust_out.txt
         done
         """
+    if (params.classification=='kraken2')
+        """
+        echo "id;reads_in_cluster;used_for_consensus;reads_after_corr;draft_id;sciname;taxid;class_level" > ${barcode}.nanoclust_out.txt
 
-     
+        for i in $logs; do
+            cat \$i >> ${barcode}.nanoclust_out.txt
+        done
+        """
+
  }
 
 process get_abundances {
