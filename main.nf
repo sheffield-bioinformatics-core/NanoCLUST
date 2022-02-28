@@ -140,6 +140,17 @@ ${summary.collect { k,v -> "            <dt>$k</dt><dd><samp>${v ?: '<span style
    return yaml_file
 }
 
+def resolve_blast_db_path (path) {
+    if(path ==~ /^\/.*/)
+        path
+    else if(path ==~ /^\.\/.*/)
+        "$projectDir/" + path
+    else if(workflow.profile == 'conda' || workflow.profile == 'test,conda')
+        "$baseDir/" + path
+    else
+        "/tmp/" + path
+}
+
 /*
  * Parse software version numbers
  */
@@ -167,25 +178,25 @@ process get_software_versions {
  * STEP 1 - Quality control
  */
 
- good_reads = 0
- cluster_count = []
+good_reads = 0
+cluster_count = []
 
 if(params.demultiplex) {
     process demultiplex {
-     publishDir "${params.outdir}/demultiplexed_samples", mode: 'copy'
+        publishDir "${params.outdir}/demultiplexed_samples", mode: 'copy'
 
-     input:
-     file(reads) from multiplexed_reads
+        input:
+        file(reads) from multiplexed_reads
 
-     output:
-     file("barcode*.fastq") into reads mode flatten
+        output:
+        ile("barcode*.fastq") into reads mode flatten
 
-     script:
-     kit = params.kit
-     """
-     qcat -f $reads -k $kit --trim -t ${task.cpus} -b .
-     """
- }
+        script:
+        kit = params.kit
+        """
+        qcat -f $reads -k $kit --trim -t ${task.cpus} -b .
+        """
+    }
 }
 
 if(params.demultiplex_porechop){
@@ -219,7 +230,6 @@ process QC {
     """
 }
 
-
 process fastqc {
     publishDir "${params.outdir}/fastqc_rawdata", mode: 'copy',
     saveAs: {filename -> filename.indexOf(".zip") > 0 ? "zips/$filename" : "$filename"}
@@ -235,6 +245,7 @@ process fastqc {
     fastqc -q $reads
     """
 }
+
 if(params.multiqc){
     process multiqc {
         publishDir "${params.outdir}/MultiQC", mode: 'copy'
@@ -253,277 +264,265 @@ if(params.multiqc){
     }
 }
 
- process kmer_freqs {
-     memory { 7.GB * task.attempt }
-     time { 1.hour * task.attempt }
-     errorStrategy { task.exitStatus in 137..140 ? 'retry' : 'terminate' }
-     maxRetries 3
+process kmer_freqs {
+    memory { 7.GB * task.attempt }
+    time { 2.hour * task.attempt }
+    errorStrategy { task.exitStatus in 137..140 ? 'retry' : 'terminate' }
+    maxRetries 3
 
-     input:
-     tuple val(barcode), file(qced_reads) from qc_results
+    input:
+    tuple val(barcode), file(qced_reads) from qc_results
 
-     output:
-     file "freqs.txt" into freqs
-     tuple val(barcode), file(qced_reads) into freqs_qc_results
+    output:
+    file "freqs.txt" into freqs
+    tuple val(barcode), file(qced_reads) into freqs_qc_results
 
-     script:   
-     """
-     kmer_freq.py -r $qced_reads > freqs.txt
-     """
-
- }
-
- process read_clustering {
-     time { 1.hour * task.attempt }
-     errorStrategy { task.exitStatus in 137..140 ? 'retry' : 'terminate' }
-     maxRetries 3
-
-     publishDir "${params.outdir}/${barcode}/", mode: 'copy', pattern: 'hdbscan.output.*'
-
-     input:
-     file(kmer_freqs) from freqs
-     tuple val(barcode), file(qced_reads) from freqs_qc_results
-
-     output:
-     tuple val(barcode), file('hdbscan.output.tsv'), file(qced_reads) into clustering_out
-     file('*.png')
-
-     script:
-     template "umap_hdbscan.py"
- }
-
- process split_by_cluster {
-     input:
-     tuple val(barcode), file(clusters), file(qced_reads) from clustering_out
-
-     output:
-     tuple val(barcode), file('*[0-9]*.log'), file('*[0-9]*.fastq') optional true into cluster_reads mode flatten
-
-     script:
-     """
-     sed 's/\\srunid.*//g' $qced_reads > only_id_header_readfile.fastq
-     CLUSTERS_CNT=\$(awk '(\$5 ~ /[0-9]/) {print \$5}' $clusters | sort -nr | uniq | head -n1)
-
-     for ((i = 0 ; i <= \$CLUSTERS_CNT ; i++));
-     do
-        cluster_id=\$i
-        awk -v cluster="\$cluster_id" '(\$5 == cluster) {print \$1}' $clusters > \$cluster_id\\_ids.txt
-        seqtk subseq only_id_header_readfile.fastq \$cluster_id\\_ids.txt > \$cluster_id.fastq
-        READ_COUNT=\$(( \$(awk '{print \$1/4}' <(wc -l \$cluster_id.fastq)) ))
-        echo -n "\$cluster_id;\$READ_COUNT" > \$cluster_id.log
-     done
-     """
- }
-
- process read_correction {
-     memory { 7.GB * task.attempt }
-     time { 1.hour * task.attempt }
-     errorStrategy { task.exitStatus in 137..140 ? 'retry' : 'terminate' }
-     maxRetries 3
-
-     input:
-     tuple val(barcode), file(cluster_log), file(reads) from cluster_reads
-
-     output:
-      tuple val(barcode), val(cluster_id), file('*_racon_.log'), file('corrected_reads.correctedReads.fasta') into corrected_reads
-
-     script:
-     count=params.polishing_reads
-     cluster_id=cluster_log.baseName
-     """
-     head -n\$(( $count*4 )) $reads > subset.fastq
-     canu -correct -p corrected_reads -nanopore-raw subset.fastq genomeSize=${params.avg_amplicon_size} stopOnLowCoverage=${params.stopOnLowCoverage} minInputCoverage=${params.minInputCoverage} minReadLength=${params.minReadLength} minOverlapLength=${params.minOverlapLength} useGrid=${params.useGrid}
-     gunzip corrected_reads.correctedReads.fasta.gz
-     READ_COUNT=\$(( \$(awk '{print \$1/2}' <(wc -l corrected_reads.correctedReads.fasta)) ))
-     cat $cluster_log > ${cluster_id}_racon.log
-     echo -n ";$count;\$READ_COUNT;" >> ${cluster_id}_racon.log && cp ${cluster_id}_racon.log ${cluster_id}_racon_.log
-     """
- }
-
- process draft_selection {
-     publishDir "${params.outdir}/${barcode}/cluster${cluster_id}", mode: 'copy', pattern: 'draft_read.fasta'
-     errorStrategy 'retry'
-
-     input:
-     tuple val(barcode), val(cluster_id), file(cluster_log), file(reads) from corrected_reads
-
-     output:
-     tuple val(barcode), val(cluster_id), file('*_draft.log'), file('draft_read.fasta'), file(reads) into draft
-
-     script:
-     """
-     split -l 2 $reads split_reads
-     find split_reads* > read_list.txt
-
-     fastANI --ql read_list.txt --rl read_list.txt -o fastani_output.ani -t 48 -k 16 --fragLen 160
-
-     DRAFT=\$(awk 'NR>1{name[\$1] = \$1; arr[\$1] += \$3; count[\$1] += 1}  END{for (a in arr) {print arr[a] / count[a], name[a] }}' fastani_output.ani | sort -rg | cut -d " " -f2 | head -n1)
-     cat \$DRAFT > draft_read.fasta
-     ID=\$(head -n1 draft_read.fasta | sed 's/>//g')
-     cat $cluster_log > ${cluster_id}_draft.log
-     echo -n \$ID >> ${cluster_id}_draft.log
+    script:   
     """
- }
+    kmer_freq.py -r $qced_reads > freqs.txt
+    """
 
- process racon_pass {
-     memory { 7.GB * task.attempt }
-     time { 1.hour * task.attempt }
-     errorStrategy { task.exitStatus in 137..140 ? 'retry' : 'terminate' }
-     maxRetries 3
+}
 
-     input:
-     tuple val(barcode), val(cluster_id), file(cluster_log), file(draft_read), file(corrected_reads) from draft
+process read_clustering {
+    time { 2.hour * task.attempt }
+    errorStrategy { task.exitStatus in 137..140 ? 'retry' : 'terminate' }
+    maxRetries 3
 
-     output:
-     tuple val(barcode), val(cluster_id), file(cluster_log), file('racon_consensus.fasta'), file(corrected_reads), env(success) into racon_output
+    publishDir "${params.outdir}/${barcode}/", mode: 'copy', pattern: 'hdbscan.output.*'
 
-     script:
-     """
-     success=1
-     minimap2 -ax map-ont --no-long-join -r100 -a $draft_read $corrected_reads -o aligned.sam
-     if racon --quality-threshold=9 -w 250 $corrected_reads aligned.sam $draft_read > racon_consensus.fasta ; then
-        success=1
-     else
-        success=0
-        cat $draft_read > racon_consensus.fasta
-     fi
+    input:
+    file(kmer_freqs) from freqs
+    tuple val(barcode), file(qced_reads) from freqs_qc_results
 
-     """
- }
+    output:
+    tuple val(barcode), file('hdbscan.output.tsv'), file(qced_reads) into clustering_out
+    file('*.png')
 
- process medaka_pass {
-     memory { 7.GB * task.attempt }
-     time { 1.hour * task.attempt }
-     errorStrategy { task.exitStatus in 137..140 ? 'retry' : 'terminate' }
-     maxRetries 3
+    script:
+    template "umap_hdbscan.py"
+}
 
-     publishDir "${params.outdir}/${barcode}/cluster${cluster_id}", mode: 'copy', pattern: 'consensus_medaka.fasta/consensus.fasta' 
+process split_by_cluster {
+    input:
+    tuple val(barcode), file(clusters), file(qced_reads) from clustering_out
 
-     input:
-     tuple val(barcode), val(cluster_id), file(cluster_log), file(draft), file(corrected_reads), val(success) from racon_output
+    output:
+    tuple val(barcode), file('*[0-9]*.log'), file('*[0-9]*.fastq') optional true into cluster_reads mode flatten
 
-     output:
-     tuple val(barcode), val(cluster_id), file(cluster_log), file('consensus_medaka.fasta/consensus.fasta') into final_consensus
+    script:
+    """
+    sed 's/\\srunid.*//g' $qced_reads > only_id_header_readfile.fastq
+    CLUSTERS_CNT=\$(awk '(\$5 ~ /[0-9]/) {print \$5}' $clusters | sort -nr | uniq | head -n1)
 
-     script:
-     if(success == "0"){
-        log.warn """Sample $barcode : Racon correction for cluster $cluster_id failed due to not enough overlaps. Taking draft read as consensus"""
-        racon_warnings.add("""Sample $barcode : Racon correction for cluster $cluster_id failed due to not enough overlaps. Taking draft read as consensus""")
-     }
-     /*
-     for some reason including the model was causing medaka to fail -m r941_min_high_g303 - so removed
-     */
+    for ((i = 0 ; i <= \$CLUSTERS_CNT ; i++));
+    do
+    cluster_id=\$i
+    awk -v cluster="\$cluster_id" '(\$5 == cluster) {print \$1}' $clusters > \$cluster_id\\_ids.txt
+    seqtk subseq only_id_header_readfile.fastq \$cluster_id\\_ids.txt > \$cluster_id.fastq
+    READ_COUNT=\$(( \$(awk '{print \$1/4}' <(wc -l \$cluster_id.fastq)) ))
+    echo -n "\$cluster_id;\$READ_COUNT" > \$cluster_id.log
+    done
+    """
+}
 
-     """
-     if medaka_consensus -i $corrected_reads -d $draft -o consensus_medaka.fasta -t 4 ; then
-        echo "Command succeeded"
-     else
-        cat $draft > consensus_medaka.fasta
-     fi
-     """
+process read_correction {
+    memory { 7.GB * task.attempt }
+    time { 1.hour * task.attempt }
+    errorStrategy { task.exitStatus in 137..140 ? 'retry' : 'terminate' }
+    maxRetries 3
 
- }
+    input:
+    tuple val(barcode), file(cluster_log), file(reads) from cluster_reads
 
- def resolve_blast_db_path (path) {
-     if(path ==~ /^\/.*/)
-         path
-     else if(path ==~ /^\.\/.*/)
-         "$projectDir/" + path
-     else if(workflow.profile == 'conda' || workflow.profile == 'test,conda')
-         "$baseDir/" + path
-     else
-         "/tmp/" + path
- }
+    output:
+    tuple val(barcode), val(cluster_id), file('*_racon_.log'), file('corrected_reads.correctedReads.fasta') into corrected_reads
 
- process consensus_classification {
-     publishDir "${params.outdir}/${barcode}/cluster${cluster_id}", mode: 'copy', pattern: ['consensus_classification.csv', 'classification_out.tsv']
-     time '3m'
-     errorStrategy { sleep(1000); return 'retry' }
-     maxRetries 5
+    script:
+    count=params.polishing_reads
+    cluster_id=cluster_log.baseName
+    """
+    head -n\$(( $count*4 )) $reads > subset.fastq
+    canu -correct -p corrected_reads -nanopore-raw subset.fastq genomeSize=${params.avg_amplicon_size} stopOnLowCoverage=${params.stopOnLowCoverage} minInputCoverage=${params.minInputCoverage} minReadLength=${params.minReadLength} minOverlapLength=${params.minOverlapLength} useGrid=${params.useGrid}
+    gunzip corrected_reads.correctedReads.fasta.gz
+    READ_COUNT=\$(( \$(awk '{print \$1/2}' <(wc -l corrected_reads.correctedReads.fasta)) ))
+    cat $cluster_log > ${cluster_id}_racon.log
+    echo -n ";$count;\$READ_COUNT;" >> ${cluster_id}_racon.log && cp ${cluster_id}_racon.log ${cluster_id}_racon_.log
+    """
+}
 
-     input:
-     tuple val(barcode), val(cluster_id), file(cluster_log), file(consensus) from final_consensus
+process draft_selection {
+    publishDir "${params.outdir}/${barcode}/cluster${cluster_id}", mode: 'copy', pattern: 'draft_read.fasta'
+    errorStrategy 'retry'
 
-     output:
-     file('consensus_classification.csv')
-     file('classification_out.tsv') optional true
-     tuple val(barcode), file('*_classification.log') into classifications_ch
+    input:
+    tuple val(barcode), val(cluster_id), file(cluster_log), file(reads) from corrected_reads
 
-     script:
-     if(params.classification=='blast'){
-         db = resolve_blast_db_path(params.db)
-         taxdb = resolve_blast_db_path(params.tax)
+    output:
+    tuple val(barcode), val(cluster_id), file('*_draft.log'), file('draft_read.fasta'), file(reads) into draft
 
-         if(workflow.profile == 'conda' || workflow.profile == 'test,conda'){
-             blast_dir = "$baseDir/"
-         }
-         else {
-             blast_dir = "/tmp/"
-         }
+    script:
+    """
+    split -l 2 $reads split_reads
+    find split_reads* > read_list.txt
 
-         db=params.db
-         taxdb=blast_dir + params.tax
-         if(!params.db)
-             """
-             echo "chosen classification: blast"
-             blastn -query $consensus -db nr -remote -entrez_query "Bacteria [Organism]" -task blastn -dust no -outfmt "10 staxids sscinames evalue length score pident" -evalue 11 -max_hsps 50 -max_target_seqs 5 > consensus_classification.csv
-             cat $cluster_log > ${cluster_id}_classification.log
-             echo -n ";" >> ${cluster_id}_classification.log
-             BLAST_OUT=\$(cut -d";" -f1,2,4,5 consensus_classification.csv | head -n1)
-             echo \$BLAST_OUT >> ${cluster_id}_classification.log
-             """
+    fastANI --ql read_list.txt --rl read_list.txt -o fastani_output.ani -t 48 -k 16 --fragLen 160
 
-         else
-             """
-             echo "chosen classification: blast"
-             export BLASTDB=
-             export BLASTDB=\$BLASTDB:$taxdb
-             blastn -query $consensus -db $db -task blastn -dust no -outfmt "10 sscinames staxids evalue length pident" -evalue 11 -max_hsps 50 -max_target_seqs 5 | sed 's/,/;/g' > consensus_classification.csv
-             #DECIDE FINAL CLASSIFFICATION
-             cat $cluster_log > ${cluster_id}_classification.log
-             echo -n ";" >> ${cluster_id}_classification.log
-             BLAST_OUT=\$(cut -d";" -f1,2,4,5 consensus_classification.csv | head -n1)
-             echo \$BLAST_OUT >> ${cluster_id}_classification.log
-             """
-     }
+    DRAFT=\$(awk 'NR>1{name[\$1] = \$1; arr[\$1] += \$3; count[\$1] += 1}  END{for (a in arr) {print arr[a] / count[a], name[a] }}' fastani_output.ani | sort -rg | cut -d " " -f2 | head -n1)
+    cat \$DRAFT > draft_read.fasta
+    ID=\$(head -n1 draft_read.fasta | sed 's/>//g')
+    cat $cluster_log > ${cluster_id}_draft.log
+    echo -n \$ID >> ${cluster_id}_draft.log
+"""
+}
 
-     if(params.classification=='seqmatch'){
-         db=params.db
-         accession=params.accession
-         """
-         echo "chosen classification: seqmatch"
-         SequenceMatch seqmatch -k 5 $db $consensus | cut -f2,4 | sort | join -t \$'\t' -1 1 -2 1 -o 2.3,2.5,2.4,1.2 - $accession | sort -k4 -n -r -t '\t' | sed 's/\t/;/g' > consensus_classification.csv
-         cat $cluster_log > ${cluster_id}_classification.log
-         echo -n ";" >> ${cluster_id}_classification.log
-         SEQ_OUT=\$(head -n1 consensus_classification.csv)
-         echo \$SEQ_OUT >> ${cluster_id}_classification.log
-         """
-     }
+process racon_pass {
+    memory { 7.GB * task.attempt }
+    time { 1.hour * task.attempt }
+    errorStrategy { task.exitStatus in 137..140 ? 'retry' : 'terminate' }
+    maxRetries 3
 
-     if(params.classification=='kraken2'){
-         db=params.db
-         """
-         echo "chosen classification: kraken2"
-         kraken2 --db $db --report consensus_classification.csv --output classification_out.tsv $consensus
-         cat $cluster_log > ${cluster_id}_classification.log
-         echo -n ";" >> ${cluster_id}_classification.log
-         KR_OUT=\$(sed 's/\t/;/g' consensus_classification.csv | tr -s ' ' | sed 's/; /;/g' | cut -d ';' -f3,4,5,6 | grep -v '^0' | awk 'BEGIN {FS=";"; OFS=";"} {print \$4, \$3, \$2}')
-         echo \$KR_OUT >> ${cluster_id}_classification.log
-         """
-     }
- }
+    input:
+    tuple val(barcode), val(cluster_id), file(cluster_log), file(draft_read), file(corrected_reads) from draft
 
- process join_results {
-     publishDir "${params.outdir}/${barcode}", mode: 'copy'
+    output:
+    tuple val(barcode), val(cluster_id), file(cluster_log), file('racon_consensus.fasta'), file(corrected_reads), env(success) into racon_output
 
-     input:
-     tuple val(barcode), file(logs) from classifications_ch.groupTuple()
+    script:
+    """
+    success=1
+    minimap2 -ax map-ont --no-long-join -r100 -a $draft_read $corrected_reads -o aligned.sam
+    if racon --quality-threshold=9 -w 250 $corrected_reads aligned.sam $draft_read > racon_consensus.fasta ; then
+    success=1
+    else
+    success=0
+    cat $draft_read > racon_consensus.fasta
+    fi
 
-     output:
-     tuple val(barcode), file('*.nanoclust_out.txt') into output_table_ch
+    """
+}
 
-     script:
-     if(params.classification=='blast')
+process medaka_pass {
+    memory { 7.GB * task.attempt }
+    time { 1.hour * task.attempt }
+    errorStrategy { task.exitStatus in 137..140 ? 'retry' : 'terminate' }
+    maxRetries 3
+
+    publishDir "${params.outdir}/${barcode}/cluster${cluster_id}", mode: 'copy', pattern: 'consensus_medaka.fasta/consensus.fasta' 
+
+    input:
+    tuple val(barcode), val(cluster_id), file(cluster_log), file(draft), file(corrected_reads), val(success) from racon_output
+
+    output:
+    tuple val(barcode), val(cluster_id), file(cluster_log), file('consensus_medaka.fasta/consensus.fasta') into final_consensus
+
+    script:
+    if(success == "0"){
+    log.warn """Sample $barcode : Racon correction for cluster $cluster_id failed due to not enough overlaps. Taking draft read as consensus"""
+    racon_warnings.add("""Sample $barcode : Racon correction for cluster $cluster_id failed due to not enough overlaps. Taking draft read as consensus""")
+    }
+    /*
+    for some reason including the model was causing medaka to fail -m r941_min_high_g303 - so removed
+    */
+
+    """
+    if medaka_consensus -i $corrected_reads -d $draft -o consensus_medaka.fasta -t 4 ; then
+    echo "Command succeeded"
+    else
+    cat $draft > consensus_medaka.fasta
+    fi
+    """
+
+}
+
+process consensus_classification {
+    publishDir "${params.outdir}/${barcode}/cluster${cluster_id}", mode: 'copy', pattern: ['consensus_classification.csv', 'classification_out.tsv']
+    time '3m'
+    errorStrategy { sleep(1000); return 'retry' }
+    maxRetries 5
+
+    input:
+    tuple val(barcode), val(cluster_id), file(cluster_log), file(consensus) from final_consensus
+
+    output:
+    file('consensus_classification.csv')
+    file('classification_out.tsv') optional true
+    tuple val(barcode), file('*_classification.log') into classifications_ch
+
+    script:
+    if(params.classification=='seqmatch'){
+        db=params.db
+        accession=params.accession
+        """
+        echo "chosen classification: seqmatch"
+        SequenceMatch seqmatch -k 5 $db $consensus | cut -f2,4 | sort | join -t \$'\t' -1 1 -2 1 -o 2.3,2.5,2.4,1.2 - $accession | sort -k4 -n -r -t '\t' | sed 's/\t/;/g' > consensus_classification.csv
+        cat $cluster_log > ${cluster_id}_classification.log
+        echo -n ";" >> ${cluster_id}_classification.log
+        SEQ_OUT=\$(head -n1 consensus_classification.csv)
+        echo \$SEQ_OUT >> ${cluster_id}_classification.log
+        """
+    }
+    else if(params.classification=='kraken2'){
+        db=params.db
+        """
+        echo "chosen classification: kraken2"
+        kraken2 --db $db --report consensus_classification.csv --output classification_out.tsv $consensus
+        cat $cluster_log > ${cluster_id}_classification.log
+        echo -n ";" >> ${cluster_id}_classification.log
+        KR_OUT=\$(sed 's/\t/;/g' consensus_classification.csv | tr -s ' ' | sed 's/; /;/g' | cut -d ';' -f3,4,5,6 | grep -v '^0' | awk 'BEGIN {FS=";"; OFS=";"} {print \$4, \$3, \$2}')
+        echo \$KR_OUT >> ${cluster_id}_classification.log
+        """
+    }
+    else if(params.classification=='blast'){
+        db = resolve_blast_db_path(params.db)
+        taxdb = resolve_blast_db_path(params.tax)
+
+        if(workflow.profile == 'conda' || workflow.profile == 'test,conda'){
+            blast_dir = "$baseDir/"
+        }
+        else {
+            blast_dir = "/tmp/"
+        }
+
+        db=params.db
+        taxdb=blast_dir + params.tax
+        if(!params.db){
+            """
+            echo "chosen classification: blast"
+            blastn -query $consensus -db nr -remote -entrez_query "Bacteria [Organism]" -task blastn -dust no -outfmt "10 staxids sscinames evalue length score pident" -evalue 11 -max_hsps 50 -max_target_seqs 5 > consensus_classification.csv
+            cat $cluster_log > ${cluster_id}_classification.log
+            echo -n ";" >> ${cluster_id}_classification.log
+            BLAST_OUT=\$(cut -d";" -f1,2,4,5 consensus_classification.csv | head -n1)
+            echo \$BLAST_OUT >> ${cluster_id}_classification.log
+            """
+        }
+        else {
+            """
+            echo "chosen classification: blast"
+            export BLASTDB=
+            export BLASTDB=\$BLASTDB:$taxdb
+            blastn -query $consensus -db $db -task blastn -dust no -outfmt "10 sscinames staxids evalue length pident" -evalue 11 -max_hsps 50 -max_target_seqs 5 | sed 's/,/;/g' > consensus_classification.csv
+            #DECIDE FINAL CLASSIFFICATION
+            cat $cluster_log > ${cluster_id}_classification.log
+            echo -n ";" >> ${cluster_id}_classification.log
+            BLAST_OUT=\$(cut -d";" -f1,2,4,5 consensus_classification.csv | head -n1)
+            echo \$BLAST_OUT >> ${cluster_id}_classification.log
+            """
+        }
+    }
+}
+
+process join_results {
+    publishDir "${params.outdir}/${barcode}", mode: 'copy'
+
+    input:
+    tuple val(barcode), file(logs) from classifications_ch.groupTuple()
+
+    output:
+    tuple val(barcode), file('*.nanoclust_out.txt') into output_table_ch
+
+    script:
+    if(params.classification=='blast')
         """
         echo "id;reads_in_cluster;used_for_consensus;reads_after_corr;draft_id;sciname;taxid;length;per_ident" > ${barcode}.nanoclust_out.txt
 
@@ -531,7 +530,7 @@ if(params.multiqc){
             cat \$i >> ${barcode}.nanoclust_out.txt
         done
         """
-    if(params.classification=='seqmatch')
+    else if(params.classification=='seqmatch')
         """
         echo "id;reads_in_cluster;used_for_consensus;reads_after_corr;draft_id;sciname;taxid;accession;seqmatch_score" > ${barcode}.nanoclust_out.txt
 
@@ -539,7 +538,7 @@ if(params.multiqc){
             cat \$i >> ${barcode}.nanoclust_out.txt
         done
         """
-    if (params.classification=='kraken2')
+    else if (params.classification=='kraken2')
         """
         echo "id;reads_in_cluster;used_for_consensus;reads_after_corr;draft_id;sciname;taxid;class_level" > ${barcode}.nanoclust_out.txt
 
@@ -548,7 +547,7 @@ if(params.multiqc){
         done
         """
 
- }
+}
 
 process get_abundances {
     publishDir "${params.outdir}/${barcode}", mode: 'copy'
@@ -668,14 +667,14 @@ workflow.onComplete {
     // Send the HTML e-mail
     if (email_address) {
         try {
-          if ( params.plaintext_email ){ throw GroovyException('Send plaintext e-mail, not HTML') }
-          // Try to send HTML e-mail using sendmail
-          [ 'sendmail', '-t' ].execute() << sendmail_html
-          log.info "[nf-core/nanoclust] Sent summary e-mail to $email_address (sendmail)"
+            if ( params.plaintext_email ){ throw GroovyException('Send plaintext e-mail, not HTML') }
+            // Try to send HTML e-mail using sendmail
+            [ 'sendmail', '-t' ].execute() << sendmail_html
+            log.info "[nf-core/nanoclust] Sent summary e-mail to $email_address (sendmail)"
         } catch (all) {
-          // Catch failures and try with plaintext
-          [ 'mail', '-s', subject, email_address ].execute() << email_txt
-          log.info "[nf-core/nanoclust] Sent summary e-mail to $email_address (mail)"
+            // Catch failures and try with plaintext
+            [ 'mail', '-s', subject, email_address ].execute() << email_txt
+            log.info "[nf-core/nanoclust] Sent summary e-mail to $email_address (mail)"
         }
     }
 
@@ -695,9 +694,9 @@ workflow.onComplete {
     c_red = params.monochrome_logs ? '' : "\033[0;31m";
 
     if (workflow.stats.ignoredCount > 0 && workflow.success) {
-      log.info "${c_purple}Warning, pipeline completed, but with errored process(es) ${c_reset}"
-      log.info "${c_red}Number of ignored errored process(es) : ${workflow.stats.ignoredCount} ${c_reset}"
-      log.info "${c_green}Number of successfully ran process(es) : ${workflow.stats.succeedCount} ${c_reset}"
+        log.info "${c_purple}Warning, pipeline completed, but with errored process(es) ${c_reset}"
+        log.info "${c_red}Number of ignored errored process(es) : ${workflow.stats.ignoredCount} ${c_reset}"
+        log.info "${c_green}Number of successfully ran process(es) : ${workflow.stats.succeedCount} ${c_reset}"
     }
 
     if (workflow.success) {
