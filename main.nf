@@ -285,7 +285,8 @@ process kmer_freqs {
 }
 
 process read_clustering {
-    time { 2.hour * task.attempt }
+    memory { 36.GB * task.attempt }
+    time { 3.hour * task.attempt }
     errorStrategy { task.exitStatus in 137..140 ? 'retry' : 'terminate' }
     maxRetries 3
 
