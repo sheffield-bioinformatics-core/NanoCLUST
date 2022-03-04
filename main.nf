@@ -267,7 +267,7 @@ if(params.multiqc){
 process kmer_freqs {
     memory { 7.GB * task.attempt }
     time { 2.hour * task.attempt }
-    errorStrategy { task.exitStatus in 137..140 ? 'retry' : 'terminate' }
+    errorStrategy { task.exitStatus in 137..140 ? 'retry': task.exitStatus == 72 ? 'ignore' : 'terminate' }
     maxRetries 3
 
     input:

@@ -202,6 +202,12 @@ def get_n_reads(fastx, ftype):
 def check_input_format(fastx):
     for line in open(fastx).readlines():
         break
+    
+    try:
+        line[0]
+    except UnboundLocalError:
+        print("No reads passed the FASTQC for this sample and further analysis will be discontinued")
+        sys.exit(72)
 
     if line[0]=="@":
         ftype = "fastq"
