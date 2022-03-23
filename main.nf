@@ -523,7 +523,7 @@ process join_results {
     tuple val(barcode), file('*.nanoclust_out.txt') into output_table_ch
 
     script:
-    if(params.classification=='blast')
+    if(params.classification=='blast'){
         """
         echo "id;reads_in_cluster;used_for_consensus;reads_after_corr;draft_id;sciname;taxid;length;per_ident" > ${barcode}.nanoclust_out.txt
 
@@ -531,23 +531,43 @@ process join_results {
             cat \$i >> ${barcode}.nanoclust_out.txt
         done
         """
-    else if(params.classification=='seqmatch')
+    }
+    else if(params.classification=='seqmatch'){
+        tax=params.tax
         """
-        echo "id;reads_in_cluster;used_for_consensus;reads_after_corr;draft_id;sciname;taxid;accession;seqmatch_score" > ${barcode}.nanoclust_out.txt
+        echo "id;reads_in_cluster;used_for_consensus;reads_after_corr;draft_id;sciname;taxid;accession;seqmatch_score;name;species;genus;family;order" > ${barcode}.nanoclust_out.txt
 
         for i in $logs; do
-            cat \$i >> ${barcode}.nanoclust_out.txt
+            TAXID=\$(cut -d ";" -f7 \$i)
+            cat \$i | tr -d '\n' >> ${barcode}.nanoclust_out.txt
+            if [ "\$TAXID" != "0" ] | [ "\$TAXID" != "" ]; then
+                echo -n ";" >> ${barcode}.nanoclust_out.txt
+                TAXONOMY=\$(grep -w "^\${TAXID}" $tax | tr -d '\t' | cut -d '|' -f2,3,4,5,6 --output-delimiter ';')
+                echo "\$TAXONOMY" >> ${barcode}.nanoclust_out.txt
+            else
+                echo ";;;;" >> ${barcode}.nanoclust_out.txt
+            fi
         done
         """
-    else if (params.classification=='kraken2')
+    }
+    else if(params.classification=='kraken2'){
+        tax=params.tax
         """
-        echo "id;reads_in_cluster;used_for_consensus;reads_after_corr;draft_id;sciname;taxid;class_level" > ${barcode}.nanoclust_out.txt
+        echo "id;reads_in_cluster;used_for_consensus;reads_after_corr;draft_id;sciname;taxid;class_level;name;species;genus;family;order" > ${barcode}.nanoclust_out.txt
 
         for i in $logs; do
-            cat \$i >> ${barcode}.nanoclust_out.txt
+            TAXID=\$(cut -d ";" -f7 \$i)
+            cat \$i | tr -d '\n' >> ${barcode}.nanoclust_out.txt
+            if [ "\$TAXID" != "0" ] | [ "\$TAXID" != "" ]; then
+                echo -n ";" >> ${barcode}.nanoclust_out.txt
+                TAXONOMY=\$(grep -w "^\${TAXID}" $tax | tr -d '\t' | cut -d '|' -f2,3,4,5,6 --output-delimiter ';')
+                echo "\$TAXONOMY" >> ${barcode}.nanoclust_out.txt
+            else
+                echo ";;;;" >> ${barcode}.nanoclust_out.txt
+            fi
         done
         """
-
+    }
 }
 
 process get_abundances {

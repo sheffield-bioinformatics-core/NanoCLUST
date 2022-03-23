@@ -26,6 +26,22 @@ def get_taxname(tax_id,tax_level):
 
     return name
 
+def get_taxname_from_dmp(data, tax_id, tax_level):
+    tags = {"S": "species","G": "genus","F": "family", "O": "order"}
+    tax_level_tag = tags[tax_level]
+
+    if str(tax_id) == "nan":
+        tax_id = 1
+
+    name = data.loc[data['taxid'] == tax_id, tax_level_tag].iloc[0]
+    if type(name) != str:
+        name = data.loc[data['taxid'] == tax_id, "name"].iloc[0]
+        if type(name) != str:
+            name = data.loc[data['taxid'] == tax_id, "sciname"].iloc[0]
+
+    return name
+
+
 def get_abundance_values(names,paths):
     dfs = []
     for name,path in zip(names,paths):
@@ -41,11 +57,20 @@ def get_abundance_values(names,paths):
         dfs.append(pd.DataFrame({'taxid': data['taxid'], 'rel_abundance': rel_abundance, 'reads': data['reads_in_cluster']}))
         data.to_csv("" + name + "_nanoclust_out.txt")
 
-    return dfs
+    return dfs, data
 
-def merge_abundance(dfs,tax_level):
+def merge_abundance(dfs, data, tax_level):
     df_final = reduce(lambda left,right: pd.merge(left,right,on='taxid',how='outer').fillna(0), dfs)
-    df_final["taxid"] = [get_taxname(row["taxid"], tax_level) for index, row in df_final.iterrows()]
+    try:
+        all_tax = []
+        for index, row in df_final.iterrows():
+            all_tax.append(get_taxname_from_dmp(data, row["taxid"], tax_level))
+    except:
+        all_tax = []
+        for index, row in df_final.iterrows():
+            all_tax.append(get_taxname(row["taxid"], tax_level))
+    df_final["taxid"] = all_tax
+    #df_final["taxid"] = [get_taxname(row["taxid"], tax_level) for index, row in df_final.iterrows()]
     df_final_grp = df_final.groupby(["taxid"], as_index=False).sum()
     df_final_sorted = df_final_grp.sort_values(by='rel_abundance', ascending=False)
     return df_final_sorted
@@ -55,8 +80,8 @@ def get_abundance(names,paths,tax_level):
         paths = [paths]
         names = [names]
 
-    dfs = get_abundance_values(names,paths)
-    df_final_grp = merge_abundance(dfs, tax_level)
+    dfs, data = get_abundance_values(names,paths)
+    df_final_grp = merge_abundance(dfs, data, tax_level)
     df_final_grp.to_csv("rel_abundance_"+ names[0] + "_" + tax_level + ".csv", index = False)
 
 paths = "$table"
