@@ -42,16 +42,18 @@ def helpMessage() {
       --minOverlapLength            Default (200)
       --useGrid                     Default (false)
 
+    Classification options:
+      --classification              Classification algorithm to choose from: seqmatch, kraken2, blast. Default (blast)
+      --db                          Path to local database folder. If not specified for blast, search will be done againts NCBI 16S Microbial
+      --tax                         Path to taxdb database which contains the names for the --db entries (blast) or RankedLineage.dmp file (kraken2)
+      --accession                   Path to accession file with mapping between RDP tags and taxid. Required only for seqmatch.
+
 
     Other options:
       --demultiplex                 Set this parameter if you file is a pooled sample
       --demultiplex_porechop        Same as --demultiplex but uses Porechop for the task
       --kit                         (Only with --demultiplex) Barcoding kit (RAB204) {Auto,PBC096,RBK004,NBD104/NBD114,PBK004/LWB001,RBK001,RAB204,VMK001,PBC001,NBD114,NBD103/NBD104,DUAL,RPB004/RLB001}
-      --cluster_sel_epsilon         Minimun distance to separate clusters. (0.5)
-      --min_cluster_size            Minimum number of reads to call a independent cluster (100)
       --polishing_reads             Number of reads used for polishing (100)
-      --db                          Path to local BLAST database. If not specified, search will be done againts NCBI 16S Microbial
-      --tax                         Path to taxdb database which contains the names for the --db entries
       --outdir                      The output directory where the results will be saved
       --email                       Set this parameter to your e-mail address to get a summary e-mail with details of the run sent to you when the workflow exits
       --email_on_fail               Same as --email, except only send mail if the workflow is not successful
@@ -285,10 +287,10 @@ process kmer_freqs {
 }
 
 process read_clustering {
-    memory { 36.GB * task.attempt }
+    memory '36 GB'
     time { 3.hour * task.attempt }
     errorStrategy { task.exitStatus in 137..140 ? 'retry' : 'terminate' }
-    maxRetries 3
+    maxRetries 1
 
     publishDir "${params.outdir}/${barcode}/", mode: 'copy', pattern: 'hdbscan.output.*'
 
@@ -573,6 +575,9 @@ process join_results {
 }
 
 process get_abundances {
+    cpus 4
+    executor 'sge'
+
     publishDir "${params.outdir}/${barcode}", mode: 'copy'
 
     input:
