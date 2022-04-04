@@ -557,8 +557,9 @@ process join_results {
 
         for i in $logs; do
             TAXID=\$(cut -d ";" -f7 \$i)
+            TAXinDB=\$(grep -w "^\${TAXID}" $tax)
             cat \$i | tr -d '\n' >> ${barcode}.nanoclust_out.txt
-            if [ "\$TAXID" != "0" ] | [ "\$TAXID" != "" ]; then
+            if [ "\$TAXID" != "0" ] | [ "\$TAXID" != "" ] | [ "\$TAXinDB" != "" ]; then
                 echo -n ";" >> ${barcode}.nanoclust_out.txt
                 TAXONOMY=\$(grep -w "^\${TAXID}" $tax | tr -d '\t' | cut -d '|' -f2,3,4,5,6 --output-delimiter ';')
                 echo "\$TAXONOMY" >> ${barcode}.nanoclust_out.txt
