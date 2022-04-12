@@ -61,13 +61,11 @@ def get_abundance_values(names,paths):
 
 def merge_abundance(dfs, data, tax_level):
     df_final = reduce(lambda left,right: pd.merge(left,right,on='taxid',how='outer').fillna(0), dfs)
-    try:
-        all_tax = []
-        for index, row in df_final.iterrows():
+    all_tax=[]
+    for index, row in df_final.iterrows():
+        try:
             all_tax.append(get_taxname_from_dmp(data, row["taxid"], tax_level))
-    except:
-        all_tax = []
-        for index, row in df_final.iterrows():
+        except:
             all_tax.append(get_taxname(row["taxid"], tax_level))
     df_final["taxid"] = all_tax
     #df_final["taxid"] = [get_taxname(row["taxid"], tax_level) for index, row in df_final.iterrows()]
