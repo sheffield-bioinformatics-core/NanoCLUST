@@ -22,7 +22,7 @@ def parse_args():
     # Optional arguments
     parser.add_argument("-k", help="k-mer size [5]", type=int, default=5)
     parser.add_argument('-r', action='store', dest='qced_reads', help='READS')
-    parser.add_argument("-t", "--threads", help="Number of threads to use [4]", type=int, default=32)
+    parser.add_argument("-t", "--threads", help="Number of threads to use [4]", type=int, default=4)
     parser.add_argument("-c", "--count", help="Provide raw k-mer raw counts, not normalized [False]", action="store_true", default=False)
     parser.add_argument("-f", "--frac", help="Provide k-mer counts normalized by total number of k-mers [False]", action="store_true", default=False)
 
