@@ -211,7 +211,7 @@ if(params.demultiplex_porechop){
 
         script:
             """
-            porechop -i "${reads}" -t 4 -b .
+            porechop -i "${reads}" -t ${task.cpus} -b .
             """
     }
 }
