@@ -267,10 +267,6 @@ if(params.multiqc){
 }
 
 process kmer_freqs {
-    memory { 7.GB * task.attempt }
-    time { 2.hour * task.attempt }
-    errorStrategy { task.exitStatus in 137..140 ? 'retry': task.exitStatus == 72 ? 'ignore' : 'terminate' }
-    maxRetries 3
 
     input:
     tuple val(barcode), file(qced_reads) from qc_results
@@ -287,11 +283,7 @@ process kmer_freqs {
 }
 
 process read_clustering {
-    memory '36 GB'
-    time { 3.hour * task.attempt }
-    errorStrategy { task.exitStatus in 137..140 ? 'retry' : 'terminate' }
-    maxRetries 1
-
+    label (params.throughput == 'high' ? 'high_sensitivity': params.throughput == 'low' ? 'low_resource' : 'standard')
     publishDir "${params.outdir}/${barcode}/", mode: 'copy', pattern: 'hdbscan.output.*'
 
     input:
@@ -330,10 +322,6 @@ process split_by_cluster {
 }
 
 process read_correction {
-    memory { 7.GB * task.attempt }
-    time { 1.hour * task.attempt }
-    errorStrategy { task.exitStatus in 137..140 ? 'retry' : 'terminate' }
-    maxRetries 3
 
     input:
     tuple val(barcode), file(cluster_log), file(reads) from cluster_reads
@@ -380,10 +368,6 @@ process draft_selection {
 }
 
 process racon_pass {
-    memory { 7.GB * task.attempt }
-    time { 1.hour * task.attempt }
-    errorStrategy { task.exitStatus in 137..140 ? 'retry' : 'terminate' }
-    maxRetries 3
 
     input:
     tuple val(barcode), val(cluster_id), file(cluster_log), file(draft_read), file(corrected_reads) from draft
@@ -406,10 +390,6 @@ process racon_pass {
 }
 
 process medaka_pass {
-    memory { 7.GB * task.attempt }
-    time { 1.hour * task.attempt }
-    errorStrategy { task.exitStatus in 137..140 ? 'retry' : 'terminate' }
-    maxRetries 3
 
     publishDir "${params.outdir}/${barcode}/cluster${cluster_id}", mode: 'copy', pattern: 'consensus_medaka.fasta/consensus.fasta' 
 
