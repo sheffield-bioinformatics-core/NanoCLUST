@@ -230,7 +230,7 @@ process QC {
     """
     barcode=${reads.baseName}
     fastqc -q $reads
-    fastp -i $reads -q 8 -l ${params.min_read_length} --length_limit ${params.max_read_length} -o \$barcode\\_qced_reads.fastq
+    fastp -i $reads -q 8 -l ${params.min_read_length} --length_limit ${params.max_read_length} -o \$barcode\\_qced_reads.fastq -h \$barcode\\_fastp.html
     head -n\$(( ${params.umap_set_size}*4 )) \$barcode\\_qced_reads.fastq > \$barcode\\_qced_reads_set.fastq
     fastqc -q \$barcode\\_qced_reads_set.fastq
     """
