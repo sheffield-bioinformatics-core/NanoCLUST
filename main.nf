@@ -217,34 +217,22 @@ if(params.demultiplex_porechop){
 }
 
 process QC {
+    publishDir "${params.outdir}/QC_reports/", mode: 'copy', pattern: '*.html'
+
     input:
     file(reads) from reads
 
     output:
-    tuple env(barcode), file("*qced_reads_set.fastq") into reads_fastqc, qc_results 
+    tuple env(barcode), file("*qced_reads_set.fastq") into qc_results
+    file("*.{html,json}")
 
     script:
     """
     barcode=${reads.baseName}
-    fastp -i $reads -q 8 -l ${params.min_read_length} --length_limit ${params.max_read_length} -o \$barcode\\_qced_reads.fastq
-    #perl prinseq-lite.pl -fastq $reads -out_good qced_reads -min_len 1400 -max_len 1700 -log qc_log -min_qual_mean 8
-    head -n\$(( ${params.umap_set_size}*4 )) \$barcode\\_qced_reads.fastq > \$barcode\\_qced_reads_set.fastq
-    """
-}
-
-process fastqc {
-    publishDir "${params.outdir}/fastqc_rawdata", mode: 'copy',
-    saveAs: {filename -> filename.indexOf(".zip") > 0 ? "zips/$filename" : "$filename"}
-
-    input:
-    set val(name), file(reads) from reads_fastqc
-
-    output:
-    file "*_fastqc.{zip,html}" into fastqc_results
-
-    script:
-    """
     fastqc -q $reads
+    fastp -i $reads -q 8 -l ${params.min_read_length} --length_limit ${params.max_read_length} -o \$barcode\\_qced_reads.fastq
+    head -n\$(( ${params.umap_set_size}*4 )) \$barcode\\_qced_reads.fastq > \$barcode\\_qced_reads_set.fastq
+    fastqc -q \$barcode\\_qced_reads_set.fastq
     """
 }
 

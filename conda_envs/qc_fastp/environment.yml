@@ -1,7 +1,9 @@
-name: fastp
+name: quality_control
 channels:
   - conda-forge
   - bioconda
   - defaults
 dependencies:
   - fastp =0.20.1
+  - fastqc =0.11.9
+  - multiqc=1.9
