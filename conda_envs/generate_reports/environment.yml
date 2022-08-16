@@ -1,0 +1,13 @@
+name: generate_reports
+channels:
+  - conda-forge
+  - bioconda
+  - anaconda
+  - epi2melabs
+  - defaults
+dependencies:
+  - pandas
+  - epi2melabs::aplanat
+  - openpyxl
+  - wkhtmltopdf
+  - python-pdfkit
