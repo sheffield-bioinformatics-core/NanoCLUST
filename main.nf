@@ -580,49 +580,49 @@ process plot_abundances {
     template "plot_abundances_pool.py"
 }
 
-process collect_metadata {
-    input:
-    file(table) from process_metadata_ch.collect()
+if(params.generateReports){
+    process collect_metadata {
+        input:
+        file(table) from process_metadata_ch.collect()
 
-    output:
-    file("*_control.csv") into collected_metadata_ch optional true
+        output:
+        file("*_control.csv") into collected_metadata_ch optional true
 
-    script:
-    info_file=params.experimentInfo
+        script:
+        info_file=params.experimentInfo
 
-    """
-    process_metadata.py --metatable $info_file
-    """
-    
+        """
+        process_metadata.py --metatable $info_file
+        """
+        
+    }
+
+    process generate_reports {
+        publishDir "${params.outdir}/${barcode}", mode: 'copy'
+
+        input:
+        tuple val(barcode), file(table) from final_counts_ch
+        file(controls) from collected_metadata_ch.collect()
+
+        output:
+        file('*.html') into reports_ch mode flatten
+
+        script:
+        info_file=params.experimentInfo
+        revision=workflow.revision
+        clustering_size=params.umap_set_size
+        """
+        results_report.py \
+            --infile ${table} \
+            --output patient_report.html \
+            --barcode ${barcode} \
+            --info $info_file \
+            --demux 'Guppy 5.1.13' \
+            --clustering_size $clustering_size \
+            --controls ${controls} \
+        """
+    }
 }
-
-//if(params.generateReports){
-process generate_reports {
-    publishDir "${params.outdir}/${barcode}", mode: 'copy'
-
-    input:
-    tuple val(barcode), file(table) from final_counts_ch
-    file(controls) from collected_metadata_ch.collect()
-
-    output:
-    file('*.html') into reports_ch mode flatten
-
-    script:
-    info_file=params.experimentInfo
-    revision=workflow.revision
-    clustering_size=params.umap_set_size
-    """
-    results_report.py \
-        --infile ${table} \
-        --output patient_report.html \
-        --barcode ${barcode} \
-        --info $info_file \
-        --demux 'Guppy 5.1.13' \
-        --clustering_size $clustering_size \
-        --controls ${controls} \
-    """
-}
-//}
 
 process output_documentation {
     publishDir "${params.outdir}/pipeline_info", mode: 'copy'
