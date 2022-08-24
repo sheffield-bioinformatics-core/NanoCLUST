@@ -7,8 +7,19 @@ import os.path
 
 def process_metadata(file):
     meta=pd.read_excel(file, usecols=range(0,6))
-    positive_ctrl='rel_abundance_'+ meta.loc[meta['Status'] == 'positive control', 'Barcode'].item() + '_S.csv'
-    negative_ctrl='rel_abundance_'+ meta.loc[meta['Status'] == 'negative control', 'Barcode'].item() + '_S.csv'
+
+    if 'positive control' in set(meta['Status']):
+        print("true")
+        positive_ctrl='rel_abundance_'+ meta.loc[meta['Status'] == 'positive control', 'Barcode'].item() + '_S.csv'
+    else:
+        positive_ctrl="none"
+
+    if 'negative control' in set(meta['Status']):
+        print("true")
+        negative_ctrl='rel_abundance_'+ meta.loc[meta['Status'] == 'negative control', 'Barcode'].item() + '_S.csv'
+    else: 
+        negative_ctrl="none"
+
     print(positive_ctrl)
     print(negative_ctrl)
     return positive_ctrl, negative_ctrl
