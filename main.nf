@@ -88,6 +88,10 @@ if(params.demultiplex) {
 else if(params.demultiplex_porechop){
     Channel.fromPath(params.reads).set { multiplexed_reads_porechop }
 }
+else if(params.onGridIon) {
+    Channel.fromPath(params.reads, type:'dir').set { for_guppy_demux }
+    Channel.fromPath(["$workflow.launchDir/../final_summary*.txt", "$workflow.launchDir/../report*.pdf"]).set { metadata_files }
+}
 else{
     Channel.fromPath(params.reads).set { reads }
 }
@@ -199,7 +203,7 @@ if(params.demultiplex) {
         file(reads) from multiplexed_reads
 
         output:
-        ile("barcode*.fastq") into reads mode flatten
+        file("barcode*.fastq") into reads mode flatten
 
         script:
         kit = params.kit
@@ -218,9 +222,37 @@ if(params.demultiplex_porechop){
         file("BC*.fastq") into reads mode flatten
 
         script:
-            """
-            porechop -i "${reads}" -t ${task.cpus} -b .
-            """
+        """
+        porechop -i "${reads}" -t ${task.cpus} -b .
+        """
+    }
+}
+
+if(params.onGridIon){
+    // process read_project_meta {
+    //     input:
+    //     file("final_summary*.txt"), file("report*.md") from metadata_files
+
+    //     output:
+    // }
+
+    process guppy_barcoder {
+        publishDir "${params.outdir}/guppy_demux", mode: 'copy'
+
+        input:
+        file(reads) from for_guppy_demux
+        file(meta) from metadata_files.last()
+
+        output:
+        file("barcode*.fastq") into reads mode flatten
+
+        script:
+        """
+        KIT=\$(pdftotext $meta - | grep -A2 "Barcoding" | tail -n1 | grep -o '\\[.*]' | cut -d "\\"" -f2 | sed -e "s/\\(...\\)\\(\\)/\\1-\\2/")
+        echo \$KIT
+        guppy_barcoder -i $reads -s . -r --barcode_kits \$KIT --require_barcodes_both_ends
+        for i in barcode*; do cat \$i/* > \$i.fastq; done
+        """
     }
 }
 
@@ -232,6 +264,7 @@ process QC {
 
     output:
     tuple env(barcode), file("*qced_reads_set.fastq") into qc_results
+    tuple env(barcode), env(reads_count) into reads_count_ch
     file("*.{html,json}")
 
     script:
@@ -239,6 +272,7 @@ process QC {
     barcode=${reads.baseName}
     fastqc -q $reads
     fastp -i $reads -q 8 -l ${params.min_read_length} --length_limit ${params.max_read_length} -o \$barcode\\_qced_reads.fastq -h \$barcode\\_fastp.html
+    reads_count=\$(grep 'runid' \$barcode\\_qced_reads.fastq | wc -l)
     head -n\$(( ${params.umap_set_size}*4 )) \$barcode\\_qced_reads.fastq > \$barcode\\_qced_reads_set.fastq
     fastqc -q \$barcode\\_qced_reads_set.fastq
     """
@@ -353,7 +387,7 @@ process draft_selection {
     split -l 2 $reads split_reads
     find split_reads* > read_list.txt
 
-    fastANI --ql read_list.txt --rl read_list.txt -o fastani_output.ani -t 48 -k 16 --fragLen 160
+    fastANI --ql read_list.txt --rl read_list.txt -o fastani_output.ani -t 4 -k 16 --fragLen 160
 
     DRAFT=\$(awk 'NR>1{name[\$1] = \$1; arr[\$1] += \$3; count[\$1] += 1}  END{for (a in arr) {print arr[a] / count[a], name[a] }}' fastani_output.ani | sort -rg | cut -d " " -f2 | head -n1)
     cat \$DRAFT > draft_read.fasta
@@ -601,7 +635,7 @@ if(params.generateReports){
         publishDir "${params.outdir}/${barcode}", mode: 'copy'
 
         input:
-        tuple val(barcode), file(table) from final_counts_ch
+        tuple val(barcode), file(table), val(reads_count) from final_counts_ch.join(reads_count_ch)
         file(controls) from collected_metadata_ch.collect()
 
         output:
@@ -620,6 +654,7 @@ if(params.generateReports){
             --demux 'Guppy 5.1.13' \
             --clustering_size $clustering_size \
             --controls ${controls} \
+            --reads_count ${reads_count} \
         """
     }
 }
