@@ -123,6 +123,9 @@ def main():
     parser.add_argument(
         "--controls", default='unknown', nargs=2,
         help="File names for positive and negative control results")
+    parser.add_argument(
+        "--reads_count", default='0',
+        help="Reads count after quality control")
     args = parser.parse_args()
 
     metadata_table=read_patient_info(args.info, args.barcode)
@@ -145,7 +148,7 @@ def main():
     Total reads in this sample: {0}
     
     Matched species:
-    '''.format(total_reads))
+    '''.format(args.reads_count))
 
     section.table(results_table)
     
