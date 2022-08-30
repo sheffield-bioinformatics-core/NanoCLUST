@@ -374,7 +374,6 @@ process read_correction {
 
 process draft_selection {
     publishDir "${params.outdir}/${barcode}/cluster${cluster_id}", mode: 'copy', pattern: 'draft_read.fasta'
-    errorStrategy 'retry'
 
     input:
     tuple val(barcode), val(cluster_id), file(cluster_log), file(reads) from corrected_reads
@@ -391,9 +390,14 @@ process draft_selection {
 
     DRAFT=\$(awk 'NR>1{name[\$1] = \$1; arr[\$1] += \$3; count[\$1] += 1}  END{for (a in arr) {print arr[a] / count[a], name[a] }}' fastani_output.ani | sort -rg | cut -d " " -f2 | head -n1)
     cat \$DRAFT > draft_read.fasta
-    ID=\$(head -n1 draft_read.fasta | sed 's/>//g')
-    cat $cluster_log > ${cluster_id}_draft.log
-    echo -n \$ID >> ${cluster_id}_draft.log
+
+    if [ -s draft_read.fasta ]; then
+        ID=\$(head -n1 draft_read.fasta | sed 's/>//g')
+        cat $cluster_log > ${cluster_id}_draft.log
+        echo -n \$ID >> ${cluster_id}_draft.log
+    else
+        exit 73
+    fi
 """
 }
 
@@ -410,12 +414,18 @@ process racon_pass {
     success=1
     minimap2 -ax map-ont --no-long-join -r100 -a $draft_read $corrected_reads -o aligned.sam
     if racon --quality-threshold=9 -w 250 $corrected_reads aligned.sam $draft_read > racon_consensus.fasta ; then
-    success=1
+        success=1
     else
-    success=0
-    cat $draft_read > racon_consensus.fasta
+        success=0
+        cat $draft_read > racon_consensus.fasta
     fi
 
+    if [ -s racon_consensus.fasta ]; then
+        success=1
+    else
+        cat $draft_read > racon_consensus.fasta
+        success=0
+    fi
     """
 }
 
