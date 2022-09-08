@@ -7,6 +7,7 @@ channels:
   - defaults
 dependencies:
   - pandas
+  - numpy
   - epi2melabs::aplanat
   - openpyxl
   - wkhtmltopdf

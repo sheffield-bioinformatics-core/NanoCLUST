@@ -229,12 +229,6 @@ if(params.demultiplex_porechop){
 }
 
 if(params.onGridIon){
-    // process read_project_meta {
-    //     input:
-    //     file("final_summary*.txt"), file("report*.md") from metadata_files
-
-    //     output:
-    // }
 
     process guppy_barcoder {
         publishDir "${params.outdir}/guppy_demux", mode: 'copy'
@@ -245,12 +239,13 @@ if(params.onGridIon){
 
         output:
         file("barcode*.fastq") into reads mode flatten
+        env(kit) into barcoding_kit
 
         script:
         """
-        KIT=\$(pdftotext $meta - | grep -A2 "Barcoding" | tail -n1 | grep -o '\\[.*]' | cut -d "\\"" -f2 | sed -e "s/\\(...\\)\\(\\)/\\1-\\2/")
-        echo \$KIT
-        guppy_barcoder -i $reads -s . -r --barcode_kits \$KIT --require_barcodes_both_ends
+        kit=\$(pdftotext $meta - | grep -A2 "Barcoding" | tail -n1 | grep -o '\\[.*]' | cut -d "\\"" -f2 | sed -e "s/\\(...\\)\\(\\)/\\1-\\2/")
+        echo \$kit
+        guppy_barcoder -i $reads -s . -r --barcode_kits \$kit --require_barcodes_both_ends
         for i in barcode*; do cat \$i/* > \$i.fastq; done
         """
     }
@@ -624,6 +619,10 @@ process plot_abundances {
     template "plot_abundances_pool.py"
 }
 
+if(!params.onGridIon){
+        Channel.value(params.kit).set{barcoding_kit}
+    }
+
 if(params.generateReports){
     process collect_metadata {
         input:
@@ -647,6 +646,7 @@ if(params.generateReports){
         input:
         tuple val(barcode), file(table), val(reads_count) from final_counts_ch.join(reads_count_ch)
         file(controls) from collected_metadata_ch.collect()
+        val(kit) from barcoding_kit
 
         output:
         file('*.html') into reports_ch mode flatten
@@ -655,6 +655,7 @@ if(params.generateReports){
         info_file=params.experimentInfo
         revision=workflow.revision
         clustering_size=params.umap_set_size
+        report_template="$baseDir/assets/UoS_report_template.html"
         """
         results_report.py \
             --infile ${table} \
@@ -665,6 +666,8 @@ if(params.generateReports){
             --clustering_size $clustering_size \
             --controls ${controls} \
             --reads_count ${reads_count} \
+            --kit ${kit} \
+            --report_template ${report_template} \
         """
     }
 }

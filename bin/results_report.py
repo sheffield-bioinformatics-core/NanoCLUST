@@ -9,14 +9,101 @@ import uuid
 from aplanat import report
 import pandas as pd
 import os
+import numpy as np
+from jinja2 import Template
+from collections import OrderedDict
+import pkg_resources
+from bokeh.resources import INLINE
+
+class HTMLReport(report.HTMLSection):
+    """Generate HTML Report from a series of bokeh figures.
+    Items added to the report take an optional key argument, adding items
+    with the same key allows an update in place whilst maintaining the order
+    in which items were added. Items can be grouped into sections for easier
+    out of order addition.
+    """
+
+    def __init__(self, title="", lead="", report_template="", require_keys=False, style='ont'):
+        """Initialize the report item collection.
+        :param title: report title.
+        :param lead: report strapline, shown below title.
+        :param require_keys: require keys when adding items.
+        """
+        super().__init__(require_keys=require_keys)
+        self.title = title
+        self.lead = lead
+        self.sections = OrderedDict()
+        self.sections['main'] = self
+        self.style = style
+
+        self.CSS_RESOURCES = dict(
+                bootstrap='bootstrap.min.css',
+                datatables='simple-datatables_latest.css',
+                ont='custom-ont.css',
+                ond='custom-ond.css',
+                epi2me='custom-epi2me.css'
+        )
+
+        template = report_template
+        with open(template, 'r', encoding="UTF-8") as fh:
+            template = fh.read()
+        self.template = Template(template)
+
+    def add_section(self, key=None, section=None, require_keys=False):
+        """Add a section (grouping of items) to the report.
+        :param key: unique key for section.
+        :param section: `HTMLSection` to add rather than creating anew.
+        :returns: the report section.
+        """
+        if key is None:
+            key = str(uuid.uuid4())
+        section = report._maybe_new_report(section, require_keys=require_keys)
+        self.sections[key] = section
+        return self.sections[key]
+
+    def render(self):
+        """Generate HTML report containing figures."""
+        bokeh_resources = INLINE.render()
+
+        libs = []
+        css_files = ['bootstrap', 'datatables', self.style]
+        CSS_RESOURCES = [self.CSS_RESOURCES[file] for file in css_files]
+        JS_RESOURCES = ['simple-datatables_latest.js']
+        for resources, stub in (
+                [CSS_RESOURCES, "<style>{}</style>"],
+                [JS_RESOURCES, '<script type="text/javascript">{}</script>']):
+            for res in resources:
+                fn = pkg_resources.resource_filename(
+                    "aplanat.report", 'data/{}'.format(res))
+                with open(fn, encoding="UTF-8") as fh:
+                    libs.append(stub.format(fh.read()))
+
+        all_scripts = list()
+        all_divs = list()
+        for sec_name, section in self.sections.items():
+            scripts, divs = section.components()
+            all_scripts.extend(scripts)
+            all_divs.extend(divs)
+
+        script = '\n'.join(all_scripts)
+        divs = '\n'.join(all_divs)
+        return self.template.render(
+            title=self.title, lead=self.lead, logo="UoS",
+            bokeh_resources=bokeh_resources, resources="\n".join(libs),
+            script=script, div=divs)
+
+    def write(self, path):
+        """Write html report to file."""
+        with open(path, "w", encoding='utf8') as outfile:
+            outfile.write(self.render())
 
 #need our own UoSReport class
 
-class UoSReport(report.HTMLReport):
+class UoSReport(HTMLReport):
     """Report template for Sheffield Bioinformatics NanoCLUST workflow."""
 
     def __init__(
-            self, title, workflow, commit=None, revision=None,
+            self, title, report_template, workflow, commit=None, revision=None,
             require_keys=False, about=True, style='ont'):
         """Initialize the report item collection.
         :param workflow: workflow name (NanoCLUST)
@@ -37,7 +124,7 @@ class UoSReport(report.HTMLReport):
             "Results generated through the {} Nextflow workflow "
             "provided by University of Sheffield Bioinformatics.".format(workflow))
         super().__init__(
-            title=title, lead=lead, require_keys=require_keys, style=style)
+            title=title, lead=lead, report_template=report_template, require_keys=require_keys, style=style)
         self.tail_key = str(uuid.uuid4())
 
     def render(self):
@@ -62,7 +149,7 @@ class UoSReport(report.HTMLReport):
 
 def read_patient_info(file, barcode):
     #funtion parsing CSV patient file and looking up info for relevant barcode
-    info=pd.read_excel(file, usecols=range(0,5))
+    info=pd.read_excel(file, usecols=range(0,7))
     #return row with a barcode as a Series
     relevant_row=info.loc[info['Barcode'] == barcode].transpose()
     #move row names into a column
@@ -76,7 +163,10 @@ def read_patient_info(file, barcode):
 def read_abundance_results(file):
     abundance_results=pd.read_csv(file)
     abundance_results.columns=['Detected Species', 'Relative Abundance (%)', 'Number of Reads']
-    return abundance_results
+    abundance_results['Relative Abundance (%)']=abundance_results['Relative Abundance (%)'].apply(np.around)
+    abundance_results_t3=abundance_results.head(n=3)
+
+    return abundance_results_t3
 
 def process_controls(controls):
     for i in controls:
@@ -126,19 +216,34 @@ def main():
     parser.add_argument(
         "--reads_count", default='0',
         help="Reads count after quality control")
+    parser.add_argument(
+        "--kit", default='unknown',
+        help="Kit used for barcoding and demultiplexing")
+    parser.add_argument(
+        "--report_template",
+        help="path to report template")
     args = parser.parse_args()
 
+    print(args.report_template)
     metadata_table=read_patient_info(args.info, args.barcode)
     title="Patient " + metadata_table.iloc[0,1] + " Report"
 
     results_table=read_abundance_results(args.infile)
-    total_reads=results_table['Number of Reads'].sum()
 
     positive,negative=process_controls(args.controls)
 
     report = UoSReport(
-        title, "NanoCLUST",
+        title=title, workflow="NanoCLUST", report_template=args.report_template,
         revision=args.revision, commit=args.commit)
+
+    section=report.add_section()
+    section.markdown('''
+    ### Sample Information
+
+    This section displays the basic metadata.
+    ''')
+
+    section.table(metadata_table.iloc[[0,2,4,6]])
 
     section=report.add_section()
 
@@ -151,17 +256,14 @@ def main():
     '''.format(args.reads_count))
 
     section.table(results_table)
-    
-    if metadata_table.loc[metadata_table['Metadata'] == 'Infection type', 'Sample Information'].iloc[0] == 'bacterial':
+
+    assay_type=metadata_table.loc[metadata_table['Metadata'] == 'Assay', 'Sample Information'].iloc[0]
+    if assay_type == '16S':
         database_info="16s bacterial sequencing results were compared against 16S & 18S database, build 18 Jan 2022."
+        infection_type='bacterial'
     else:
         database_info="ITS2 fungal sequencing results were compared against ITS2 database, build 15 Mar 2022."
-
-    section.markdown('''
-    Sample was sequenced on a ONT GridION Mk1. 
-    Sequencing data was processed and analysed using a custom nanoclust pipeline. 
-    {0}
-    '''.format(database_info))
+        infection_type='fungal'
 
     section=report.add_section()
     section.markdown('''
@@ -170,8 +272,9 @@ def main():
 
     **NEGATIVE CONTROL**
     ''')
-
+    comment=0
     if negative is not None:
+        comment+=10
         section.markdown('''
         Total reads in negative control: {0} 
         '''.format(negative['Number of Reads'].sum()))
@@ -179,7 +282,7 @@ def main():
         section.table(negative)
     else:
         section.markdown('''
-        Negative control was not provided.
+        No species detected in negative control.
         ''')
 
     section.markdown('''
@@ -187,32 +290,35 @@ def main():
     ''')
 
     if positive is not None:
+        comment+=1
         section.markdown('''
         Total reads in positive control: {0}
         '''.format(positive['Number of Reads'].sum()))
         
         section.table(positive)
     else:
+        comment+=2
         section.markdown('''
-        Positive control was not provided.
+        No species detected in positive control.
         ''')
 
-    section.markdown('''
-    comment: green/amber/reds 
-    ''')
-
-    section=report.add_section()
-    section.markdown('''
-    ### Metadata
-
-    This section displays the basic metadata.
-    ''')
-
-    section.table(metadata_table)
+    if comment == 1:
+        section.markdown('''
+        comment: <font color="green">QC for this sample was **successful**</font>
+        ''')
+    elif comment == 11:
+        section.markdown('''
+        comment: <font color="orange">QC for this sample shows the presence of {0} reads in the negative control. Check if there is overlap with any detected pathogen in the sample that may indicate contamination.</font>
+        '''.format(infection_type))
+    else:
+        section.markdown('''
+        comment: <font color="red">QC for this sample has **failed** and results cannot be validated</font>
+        ''')
 
     section=report.add_section()
     run_id='example run ID'
-    barcoding_kit='example barcoding kit'
+    barcoding_kit=args.kit
+    print(barcoding_kit)
     demux_method=args.demux
     species_database=metadata_table['Sample Information'].iloc[4]
     clustering_size=args.clustering_size
@@ -221,14 +327,21 @@ def main():
 
     **Run ID**: (should be able to pull this out from the run report) {0}
 
-    **Barcoding kit**: (should be able to pull this out from the run report; report_RUNID.pdf/Run Parameters/Kit) {1}
+    **Barcoding kit**: {1}
 
     **Demultiplex method**: {2}
 
     **Species Database**: {3}
 
     **Clustering Size**: {4}
-    '''.format(run_id, barcoding_kit, demux_method, species_database, clustering_size))
+
+    **Sample barcode**: {5}
+
+    Sample was sequenced on a ONT GridION Mk1. 
+    Sequencing data was processed and analysed using a custom nanoclust pipeline.
+    {6}
+
+    '''.format(run_id, barcoding_kit, demux_method, species_database, clustering_size, metadata_table.iloc[1,1], database_info))
 
     #write report
     report.write(args.output)
