@@ -4,46 +4,76 @@
 
 ## Introduction
 
-The pipeline is built using [Nextflow](https://www.nextflow.io), a workflow tool to run tasks across multiple compute infrastructures in a very portable manner. It comes with docker containers making installation trivial and results highly reproducible.
+The pipeline is built using [Nextflow](https://www.nextflow.io), a workflow tool to run tasks across multiple compute infrastructures in a very portable manner.
 
 ## Quick Start
 
 i. Install [`nextflow`](https://nf-co.re/usage/installation)
 
-ii. Install [`docker`](https://docs.docker.com/engine/installation/) or [`conda`](https://conda.io/miniconda.html)
+ii. Install [`conda`](https://conda.io/miniconda.html) or [`docker`](https://docs.docker.com/engine/installation/)
 
-iii. Clone the NanoCLUST repository and test the pipeline on a minimal dataset with a single command and docker/conda profiles.
+iii. Clone the NanoCLUST repository and test the pipeline on a minimal dataset with a single command and conda/docker profiles (docker profiles currently outdated, so using **conda** is recommended)
 
-*Download a BLAST database in the NanoCLUST dir for cluster sequence classification. For NCBI 16S rRNA database:
+### Download appropriate seqmatch or kraken2 databases needed for your analysis
+
+To build a bacterial 16S kraken2 database run:
+```bash
+wget ftp.ncbi.nlm.nih.gov/refseq/TargetedLoci/Bacteria/bacteria.16SrRNA.fna.gz
+wget ftp.ncbi.nlm.nih.gov/pub/taxonomy/new_taxdump/new_taxdump.tar.gz
+gzip -d bacteria.16SrRNA.fna.gz
+tar -xf new_taxdump.tar.gz
+kraken2-build --download-taxonomy --db 16S_NCBI_30_08_2022
+kraken2-build --add-to-library bacteria.16SrRNA.fna --db 16S_NCBI_30_08_2022
+kraken2-build --build --db 16S_NCBI_30_08_2022
+```
+To run BLAST 16S rRNA classification download appropriate databases:
 
 ```bash
 mkdir db db/taxdb
 wget https://ftp.ncbi.nlm.nih.gov/blast/db/16S_ribosomal_RNA.tar.gz && tar -xzvf 16S_ribosomal_RNA.tar.gz -C db
 wget https://ftp.ncbi.nlm.nih.gov/blast/db/taxdb.tar.gz && tar -xzvf taxdb.tar.gz -C db/taxdb
 ```
+### Prepare your custom config profile
+
+```
+profiles {
+    conda {
+        conda.cacheDir = "/path/to/conda/envs"
+    }
+}
+
+params {
+    classification = "kraken2"
+    db = "/path/to/kraken2/database"
+    tax = "/path/to/new_taxdump/rankedlineage.dmp"
+    email = "your.email@email.com"
+}
+```
+
+### Run a test
 
 ```bash
-#Using docker profile with container-based dependencies (recommended).
-nextflow run main.nf -profile test,docker
+#Using conda profile (recommended).
+nextflow run main.nf -profile test,conda
 ```
 
 iv. Start running your own analysis!
 
-Run a single sample analysis inside NanoCLUST dir using default parameters:
+Run a single sample analysis (default requires 32G RAM):
 
 ```bash
-nextflow run main.nf \ 
-             -profile docker \ 
-             --reads 'sample.fastq' \ 
-             --db "db/16S_ribosomal_RNA" \ 
-             --tax "db/taxdb/"
+nextflow run /path/to/NanoCLUST_repo/main.nf \ 
+             -resume \
+             -profile conda \ 
+             -c 16S.config \
+             --reads 'sample.fastq'
 ```
 
 See usage and output sections in the documentation (/docs) for all of the available options when running the pipeline.
 
 ## Computing requirements note
 
-Clustering step uses up to 32-36GB RAM when working with a real dataset analysis and default parameters (umap_set_size = 100000). Setting umap_set_size to 50000, will diminish memory consumption to 10-13GB RAM. When running the pipeline, kmer_freqs or mostly read_clustering processes could be terminated with status 137 when not enough RAM.
+Clustering step uses up to 32-36GB RAM when working with a real dataset analysis and default parameters (umap_set_size = 100000). Setting umap_set_size to 50000, will diminish memory consumption to 10-13GB RAM (try using low_resource profile, eg. -profile conda,low_resource). When running the pipeline, kmer_freqs or mostly read_clustering processes could be terminated with status 137 when not enough RAM.
 
 Nextflow automatically uses all available resources in your machine. More cpu threads enable the pipeline to compute and classify the different clusters at the same time and hence reduces the overall execution time.
 
@@ -52,8 +82,6 @@ Using the -with-trace option, it is possible to get an execution trace file whic
 *The execution of the test profile (minimum testing dataset and default parameters) can be done with a regular 4 cores and 16GB RAM machine.
 
 ## Troubleshooting
-
-- Using conda profile, some issues can arise due to unknown problems with the read_clustering and kmer_freq conda environments. If it is the case, we recommend using the docker profile to ensure all dependencies run in the right environments and these are tested and available in the cloud (automatically downloaded when using docker profile).
 
 - In some machines, the read_clustering process exits with error status(_RuntimeError: cannot cache function '...'_). We have seen that this condition can be avoided running the pipeline with sudo privileges (even if Docker was previously available without sudo permissions). 
 
