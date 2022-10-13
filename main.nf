@@ -50,6 +50,8 @@ def helpMessage() {
       --db                          Path to local database folder. If not specified for blast, search will be done againts NCBI 16S Microbial
       --tax                         Path to taxdb database which contains the names for the --db entries (blast) or RankedLineage.dmp file (kraken2)
       --accession                   Path to accession file with mapping between RDP tags and taxid. Required only for seqmatch.
+      --reclassifyOnFail            Whether to reclassify kraken2 results with Seqmatch if species resolution hasn't been achieved (false)
+      --db2                         Seqmatch database required if reclassifyOnFail is set to true
 
     Reports options:
       --generateReports            Whether to generate PDF sample reports (false)
@@ -454,7 +456,7 @@ process medaka_pass {
 }
 
 process consensus_classification {
-    publishDir "${params.outdir}/${barcode}/cluster${cluster_id}", mode: 'copy', pattern: ['consensus_classification.csv', 'classification_out.tsv']
+    publishDir "${params.outdir}/${barcode}/cluster${cluster_id}", mode: 'copy'
     time '3m'
     errorStrategy { sleep(1000); return 'retry' }
     maxRetries 5
@@ -473,7 +475,7 @@ process consensus_classification {
         accession=params.accession
         """
         echo "chosen classification: seqmatch"
-        SequenceMatch seqmatch -k 5 $db $consensus | cut -f2,4 | sort | join -t \$'\t' -1 1 -2 1 -o 2.3,2.5,2.4,1.2 - $accession | sort -k4 -n -r -t '\t' | sed 's/\t/;/g' > consensus_classification.csv
+        SequenceMatch seqmatch -k 5 $db $consensus | cut -f2,4 | sort | join -t \$'\t' -1 1 -2 1 -o 2.3,2.5,1.2 - $accession | sort -k3 -n -r -t '\t' | sed 's/\t/;/g' > consensus_classification.csv
         cat $cluster_log > ${cluster_id}_classification.log
         echo -n ";" >> ${cluster_id}_classification.log
         SEQ_OUT=\$(head -n1 consensus_classification.csv)
@@ -482,13 +484,29 @@ process consensus_classification {
     }
     else if(params.classification=='kraken2'){
         db=params.db
+        if(params.reclassifyOnFail){
+            accession=params.accession
+            db2=params.db2
+        }
         """
         echo "chosen classification: kraken2"
         kraken2 --db $db --report consensus_classification.csv --output classification_out.tsv $consensus
+        CLASS_LVL=\$(cut -f4 consensus_classification.csv | tail -n1)
+        echo \$CLASS_LVL
+        if [[ \$CLASS_LVL != "S"* ]]; then
+        echo "reclassifying"
+        SequenceMatch seqmatch -k 5 $db2 $consensus | cut -f2,4 | sort | join -t \$'\t' -1 1 -2 1 -o 2.3,2.5,1.2 - $accession | sort -k3 -n -r -t '\t' | sed 's/\t/;/g' > consensus_classification.csv
+        cat $cluster_log > ${cluster_id}_classification.log
+        echo -n ";" >> ${cluster_id}_classification.log
+        SEQ_OUT=\$(head -n1 consensus_classification.csv)
+        echo \$SEQ_OUT >> ${cluster_id}_classification.log
+        echo ${params.classification}
+        else
         cat $cluster_log > ${cluster_id}_classification.log
         echo -n ";" >> ${cluster_id}_classification.log
         KR_OUT=\$(sed 's/\t/;/g' consensus_classification.csv | tr -s ' ' | sed 's/; /;/g' | cut -d ';' -f3,4,5,6 | grep -v '^0' | awk 'BEGIN {FS=";"; OFS=";"} {print \$4, \$3, \$2}')
         echo \$KR_OUT >> ${cluster_id}_classification.log
+        fi
         """
     }
     else if(params.classification=='blast'){
@@ -542,6 +560,7 @@ process join_results {
     script:
     if(params.classification=='blast'){
         """
+        echo "chosen classification: blast"
         echo "id;reads_in_cluster;used_for_consensus;reads_after_corr;draft_id;sciname;taxid;length;per_ident" > ${barcode}.nanoclust_out.txt
 
         for i in $logs; do
@@ -552,7 +571,8 @@ process join_results {
     else if(params.classification=='seqmatch'){
         tax=params.tax
         """
-        echo "id;reads_in_cluster;used_for_consensus;reads_after_corr;draft_id;sciname;taxid;accession;seqmatch_score;name;species;genus;family;order" > ${barcode}.nanoclust_out.txt
+        echo "chosen classification: seqmatch"
+        echo "id;reads_in_cluster;used_for_consensus;reads_after_corr;draft_id;sciname;taxid;seqmatch_score;name;species;genus;family;order" > ${barcode}.nanoclust_out.txt
 
         for i in $logs; do
             TAXID=\$(cut -d ";" -f7 \$i)
@@ -571,6 +591,7 @@ process join_results {
     else if(params.classification=='kraken2'){
         tax=params.tax
         """
+        echo "chosen classification: kraken2"
         echo "id;reads_in_cluster;used_for_consensus;reads_after_corr;draft_id;sciname;taxid;class_level;name;species;genus;family;order" > ${barcode}.nanoclust_out.txt
 
         for i in $logs; do
