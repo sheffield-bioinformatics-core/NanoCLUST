@@ -4,9 +4,14 @@ import argparse
 import shutil
 import pandas as pd
 import os.path
+import csv
 
 def process_metadata(file):
     meta=pd.read_excel(file, usecols=range(0,6))
+    barcodes=[]
+    for index, row in meta.iterrows():
+        if row['Status'] != 'discontinued':
+            barcodes.append(row['Barcode'])
 
     if 'positive control' in set(meta['Status']):
         print("true")
@@ -22,7 +27,7 @@ def process_metadata(file):
 
     print(positive_ctrl)
     print(negative_ctrl)
-    return positive_ctrl, negative_ctrl
+    return positive_ctrl, negative_ctrl, barcodes
 
 def output_meta(pos, neg):
     if os.path.exists(pos):
@@ -49,7 +54,14 @@ def main():
         help="Table with information on positive and negative controls")
     args = parser.parse_args()
 
-    positive,negative=process_metadata(args.metatable)
+    positive,negative,barcodes=process_metadata(args.metatable)
+
+    barcodes_rows=zip(barcodes)
+    with open("barcodes.csv", "w") as f:
+        writer = csv.writer(f)
+        for row in barcodes_rows:
+            writer.writerow(row)
+
     output_meta(positive, negative)
     
 

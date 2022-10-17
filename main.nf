@@ -98,6 +98,10 @@ else{
     Channel.fromPath(params.reads).set { reads }
 }
 
+if(params.generateReports) {
+    Channel.fromPath(params.experimentInfo).set { samplesheet_ch }
+}
+
 // Has the run name been specified by the user?
 //  this has the bonus effect of catching both -name and --name
 custom_runName = params.name
@@ -645,18 +649,21 @@ if(!params.onGridIon){
     }
 
 if(params.generateReports){
+
     process collect_metadata {
         input:
         file(table) from process_metadata_ch.collect()
+        file(samplesheet) from samplesheet_ch
 
         output:
         file("*_control.csv") into collected_metadata_ch optional true
+        file("barcodes.csv") into samplsheet_csv_ch
 
         script:
         info_file=params.experimentInfo
 
         """
-        process_metadata.py --metatable $info_file
+        process_metadata.py --metatable ${samplesheet}
         """
         
     }
@@ -665,7 +672,7 @@ if(params.generateReports){
         publishDir "${params.outdir}/${barcode}", mode: 'copy'
 
         input:
-        tuple val(barcode), file(table), val(reads_count) from final_counts_ch.join(reads_count_ch)
+        tuple val(barcode), file(table), val(reads_count) from samplsheet_csv_ch.splitCsv().flatten().join(final_counts_ch.join(reads_count_ch), remainder: true)
         file(controls) from collected_metadata_ch.collect()
         val(kit) from barcoding_kit
 
@@ -678,9 +685,12 @@ if(params.generateReports){
         clustering_size=params.umap_set_size
         report_template="$baseDir/assets/UoS_report_template.html"
         """
+        echo ${barcode}
+        echo ${table}
+        echo ${reads_count}
         results_report.py \
             --infile ${table} \
-            --output patient_report.html \
+            --output patient_report \
             --barcode ${barcode} \
             --info $info_file \
             --demux 'Guppy 5.1.13' \

@@ -103,7 +103,7 @@ class UoSReport(HTMLReport):
     """Report template for Sheffield Bioinformatics NanoCLUST workflow."""
 
     def __init__(
-            self, title, report_template, workflow, commit=None, revision=None,
+            self, title, report_template, workflow=None, commit=None, revision=None,
             require_keys=False, about=True, style='ont'):
         """Initialize the report item collection.
         :param workflow: workflow name (NanoCLUST)
@@ -151,13 +151,22 @@ def read_patient_info(file, barcode):
     #funtion parsing CSV patient file and looking up info for relevant barcode
     info=pd.read_excel(file, usecols=range(0,7))
     #return row with a barcode as a Series
-    relevant_row=info.loc[info['Barcode'] == barcode].transpose()
-    #move row names into a column
-    print(barcode)
-    relevant_row.index.name = 'Metadata'
-    relevant_row.reset_index(inplace=True)
-    #rename columns
-    relevant_row.columns=['Metadata', 'Sample Information']
+    if barcode=="discontinued":
+        relevant_row=[]
+        relevant_rows=info.loc[info['Status'] == barcode]
+        for index,row in relevant_rows.iterrows():
+            single_row=row.transpose()
+            single_df=single_row.reset_index()
+            single_df.columns=['Metadata', 'Sample Information']
+            relevant_row.append(single_df)
+    else:
+        relevant_rows=info.loc[info['Barcode'] == barcode]
+        #move row names into a column
+        relevant_row=relevant_rows.transpose()
+        relevant_row.index.name = 'Metadata'
+        relevant_row.reset_index(inplace=True)
+        #rename columns
+        relevant_row.columns=['Metadata', 'Sample Information']
     return relevant_row
 
 def read_abundance_results(file):
@@ -190,10 +199,10 @@ def main():
         "--infile", default='unknown',
         help='Table file with classification and abundance results')
     parser.add_argument(
-        "--output", required=True,
+        "--output", default='unknown',
         help="Report output file name")
     parser.add_argument(
-        "--barcode", required=True,
+        "--barcode", default='discontinued',
         help="barcode identifier for the patient sample")
     parser.add_argument(
         "--info", required=True,
@@ -223,128 +232,170 @@ def main():
         "--report_template",
         help="path to report template")
     args = parser.parse_args()
+    if args.barcode=="discontinued":
 
-    print(args.report_template)
-    metadata_table=read_patient_info(args.info, args.barcode)
-    title="Patient " + metadata_table.iloc[0,1] + " Report"
+        metadata_table_list=read_patient_info(args.info, args.barcode)
+        for patient in metadata_table_list:
+            title="Patient " + patient.iloc[0,1] + " Report"
+            report = UoSReport(
+                title=title, report_template=args.report_template, about=False)
 
-    results_table=read_abundance_results(args.infile)
+            section=report.add_section()
+            section.markdown('''
+            ### Sample Information
 
-    positive,negative=process_controls(args.controls)
+            This section displays the basic metadata.
+            ''')
 
-    report = UoSReport(
-        title=title, workflow="NanoCLUST", report_template=args.report_template,
-        revision=args.revision, commit=args.commit)
+            section.table(patient.iloc[[0,1,2,4,6]])
 
-    section=report.add_section()
-    section.markdown('''
-    ### Sample Information
+            section=report.add_section()
 
-    This section displays the basic metadata.
-    ''')
+            assay_type=patient.iloc[4]['Sample Information']
+            if assay_type == '16S':
+                assay_info = 'Bacterial 16s'
+            else:
+                assay_info = 'Fungal ITS2'
 
-    section.table(metadata_table.iloc[[0,2,4,6]])
+            section.markdown('''
+            ### Results
 
-    section=report.add_section()
+            <font color="red">**{0} rRNA NOT detected**</font>
+            '''.format(assay_info))
 
-    section.markdown('''
-    ### Results
+            report.write("patient_report_" + str(patient.iloc[1,1]) + ".html")
+    else:        
+        metadata_table=read_patient_info(args.info, args.barcode)
+        title="Patient " + metadata_table.iloc[0,1] + " Report"
 
-    Total reads in this sample: {0}
-    
-    Matched species:
-    '''.format(args.reads_count))
+        if args.infile == "input.1":
+            results_table = None
+        else:
+            results_table=read_abundance_results(args.infile)
 
-    section.table(results_table)
+        positive,negative=process_controls(args.controls)
 
-    assay_type=metadata_table.loc[metadata_table['Metadata'] == 'Assay', 'Sample Information'].iloc[0]
-    if assay_type == '16S':
-        database_info="16s bacterial sequencing results were compared against 16S & 18S database, build 18 Jan 2022."
-        infection_type='bacterial'
-    else:
-        database_info="ITS2 fungal sequencing results were compared against ITS2 database, build 15 Mar 2022."
-        infection_type='fungal'
+        report = UoSReport(
+            title=title, workflow="NanoCLUST", report_template=args.report_template,
+            revision=args.revision, commit=args.commit)
 
-    section=report.add_section()
-    section.markdown('''
-    ### Run QC
-
-
-    **NEGATIVE CONTROL**
-    ''')
-    comment=0
-    if negative is not None:
-        comment+=10
+        section=report.add_section()
         section.markdown('''
-        Total reads in negative control: {0} 
-        '''.format(negative['Number of Reads'].sum()))
+        ### Sample Information
 
-        section.table(negative)
-    else:
-        section.markdown('''
-        No species detected in negative control.
+        This section displays the basic metadata.
         ''')
 
-    section.markdown('''
-    **POSITIVE CONTROL**
-    ''')
+        section.table(metadata_table.iloc[[0,2,4,6]])
 
-    if positive is not None:
-        comment+=1
+        section=report.add_section()
+
         section.markdown('''
-        Total reads in positive control: {0}
-        '''.format(positive['Number of Reads'].sum()))
+        ### Results
+
+        Total reads in this sample: {0}
         
-        section.table(positive)
-    else:
-        comment+=2
+        Matched species:
+        '''.format(args.reads_count))
+
+        assay_type=metadata_table.loc[metadata_table['Metadata'] == 'Assay', 'Sample Information'].iloc[0]
+        if assay_type == '16S':
+            database_info="16s bacterial sequencing results were compared against 16S & 18S database, build 18 Jan 2022."
+            infection_type='bacterial'
+            assay_info='Bacterial 16s'
+        else:
+            database_info="ITS2 fungal sequencing results were compared against ITS2 database, build 15 Mar 2022."
+            infection_type='fungal'
+            assay_info='Fungal ITS2'
+
+        if results_table is not None:
+            section.table(results_table)
+        else:
+            section.markdown('''
+            <font color="red">**{0} rRNA NOT detected**</font>
+            '''.format(assay_info))
+        
+
+        section=report.add_section()
         section.markdown('''
-        No species detected in positive control.
+        ### Run QC
+
+
+        **NEGATIVE CONTROL**
+        ''')
+        comment=0
+        if negative is not None:
+            comment+=10
+            section.markdown('''
+            Total reads in negative control: {0} 
+            '''.format(negative['Number of Reads'].sum()))
+
+            section.table(negative)
+        else:
+            section.markdown('''
+            No species detected in negative control.
+            ''')
+
+        section.markdown('''
+        **POSITIVE CONTROL**
         ''')
 
-    if comment == 1:
+        if positive is not None:
+            comment+=1
+            section.markdown('''
+            Total reads in positive control: {0}
+            '''.format(positive['Number of Reads'].sum()))
+            
+            section.table(positive)
+        else:
+            comment+=2
+            section.markdown('''
+            No species detected in positive control.
+            ''')
+
+        if comment == 1:
+            section.markdown('''
+            comment: <font color="green">QC for this sample was **successful**</font>
+            ''')
+        elif comment == 11:
+            section.markdown('''
+            comment: <font color="orange">QC for this sample shows the presence of {0} reads in the negative control. Check if there is overlap with any detected pathogen in the sample that may indicate contamination.</font>
+            '''.format(infection_type))
+        else:
+            section.markdown('''
+            comment: <font color="red">QC for this sample has **failed** and results cannot be validated</font>
+            ''')
+
+        section=report.add_section()
+        run_id='example run ID'
+        barcoding_kit=args.kit
+        print(barcoding_kit)
+        demux_method=args.demux
+        species_database=metadata_table['Sample Information'].iloc[4]
+        clustering_size=args.clustering_size
         section.markdown('''
-        comment: <font color="green">QC for this sample was **successful**</font>
-        ''')
-    elif comment == 11:
-        section.markdown('''
-        comment: <font color="orange">QC for this sample shows the presence of {0} reads in the negative control. Check if there is overlap with any detected pathogen in the sample that may indicate contamination.</font>
-        '''.format(infection_type))
-    else:
-        section.markdown('''
-        comment: <font color="red">QC for this sample has **failed** and results cannot be validated</font>
-        ''')
+        ### Run parameters
 
-    section=report.add_section()
-    run_id='example run ID'
-    barcoding_kit=args.kit
-    print(barcoding_kit)
-    demux_method=args.demux
-    species_database=metadata_table['Sample Information'].iloc[4]
-    clustering_size=args.clustering_size
-    section.markdown('''
-    ### Run parameters
+        **Run ID**: (should be able to pull this out from the run report) {0}
 
-    **Run ID**: (should be able to pull this out from the run report) {0}
+        **Barcoding kit**: {1}
 
-    **Barcoding kit**: {1}
+        **Demultiplex method**: {2}
 
-    **Demultiplex method**: {2}
+        **Species Database**: {3}
 
-    **Species Database**: {3}
+        **Clustering Size**: {4}
 
-    **Clustering Size**: {4}
+        **Sample barcode**: {5}
 
-    **Sample barcode**: {5}
+        Sample was sequenced on a ONT GridION Mk1. 
+        Sequencing data was processed and analysed using a custom nanoclust pipeline.
+        {6}
 
-    Sample was sequenced on a ONT GridION Mk1. 
-    Sequencing data was processed and analysed using a custom nanoclust pipeline.
-    {6}
+        '''.format(run_id, barcoding_kit, demux_method, species_database, clustering_size, metadata_table.iloc[1,1], database_info))
 
-    '''.format(run_id, barcoding_kit, demux_method, species_database, clustering_size, metadata_table.iloc[1,1], database_info))
-
-    #write report
-    report.write(args.output)
+        #write report
+        report.write(args.output + "_" + str(metadata_table.iloc[1,1]) + ".html")
 
 
 if __name__ == "__main__":
