@@ -10,7 +10,7 @@ def process_metadata(file):
     meta=pd.read_excel(file, usecols=range(0,6))
     barcodes=[]
     for index, row in meta.iterrows():
-        if row['Status'] != 'discontinued':
+        if row['Status'] not in ['discontinued', 'positive control', 'negative control']:
             barcodes.append(row['Barcode'])
 
     if 'positive control' in set(meta['Status']):

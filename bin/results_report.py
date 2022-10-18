@@ -231,6 +231,9 @@ def main():
     parser.add_argument(
         "--report_template",
         help="path to report template")
+    parser.add_argument(
+        "--run_id", default='unknown',
+        help="Run ID of the sequencing run")
     args = parser.parse_args()
     if args.barcode=="discontinued":
 
@@ -367,7 +370,7 @@ def main():
             ''')
 
         section=report.add_section()
-        run_id='example run ID'
+        run_id=args.run_id
         barcoding_kit=args.kit
         print(barcoding_kit)
         demux_method=args.demux
@@ -376,7 +379,7 @@ def main():
         section.markdown('''
         ### Run parameters
 
-        **Run ID**: (should be able to pull this out from the run report) {0}
+        **Run ID**: {0}
 
         **Barcoding kit**: {1}
 

@@ -245,12 +245,14 @@ if(params.onGridIon){
 
         output:
         file("barcode*.fastq") into reads mode flatten
-        env(kit) into barcoding_kit
+        tuple env(kit), env(run_id) into barcoding_kit
 
         script:
         """
         kit=\$(pdftotext $meta - | grep -A2 "Barcoding" | tail -n1 | grep -o '\\[.*]' | cut -d "\\"" -f2 | sed -e "s/\\(...\\)\\(\\)/\\1-\\2/")
+        run_id=\$(pdftotext $meta - | grep -A2 "Run ID" | tail -n1)
         echo \$kit
+        echo \$run_id
         guppy_barcoder -i $reads -s . -r --barcode_kits \$kit --require_barcodes_both_ends
         for i in barcode*; do cat \$i/* > \$i.fastq; done
         """
@@ -491,27 +493,37 @@ process consensus_classification {
         if(params.reclassifyOnFail){
             accession=params.accession
             db2=params.db2
+            """
+            echo "chosen classification: kraken2"
+            kraken2 --db $db --report consensus_classification.csv --output classification_out.tsv $consensus
+            CLASS_LVL=\$(cut -f4 consensus_classification.csv | tail -n1)
+            echo \$CLASS_LVL
+            if [[ \$CLASS_LVL != "S"* ]]; then
+            echo "reclassifying"
+            SequenceMatch seqmatch -k 5 $db2 $consensus | cut -f2,4 | sort | join -t \$'\t' -1 1 -2 1 -o 2.3,2.5,1.2 - $accession | sort -k3 -n -r -t '\t' | sed 's/\t/;/g' > consensus_classification.csv
+            cat $cluster_log > ${cluster_id}_classification.log
+            echo -n ";" >> ${cluster_id}_classification.log
+            SEQ_OUT=\$(head -n1 consensus_classification.csv)
+            echo \$SEQ_OUT >> ${cluster_id}_classification.log
+            echo ${params.classification}
+            else
+            cat $cluster_log > ${cluster_id}_classification.log
+            echo -n ";" >> ${cluster_id}_classification.log
+            KR_OUT=\$(sed 's/\t/;/g' consensus_classification.csv | tr -s ' ' | sed 's/; /;/g' | cut -d ';' -f3,4,5,6 | grep -v '^0' | awk 'BEGIN {FS=";"; OFS=";"} {print \$4, \$3, \$2}')
+            echo \$KR_OUT >> ${cluster_id}_classification.log
+            fi
+            """
         }
-        """
-        echo "chosen classification: kraken2"
-        kraken2 --db $db --report consensus_classification.csv --output classification_out.tsv $consensus
-        CLASS_LVL=\$(cut -f4 consensus_classification.csv | tail -n1)
-        echo \$CLASS_LVL
-        if [[ \$CLASS_LVL != "S"* ]]; then
-        echo "reclassifying"
-        SequenceMatch seqmatch -k 5 $db2 $consensus | cut -f2,4 | sort | join -t \$'\t' -1 1 -2 1 -o 2.3,2.5,1.2 - $accession | sort -k3 -n -r -t '\t' | sed 's/\t/;/g' > consensus_classification.csv
-        cat $cluster_log > ${cluster_id}_classification.log
-        echo -n ";" >> ${cluster_id}_classification.log
-        SEQ_OUT=\$(head -n1 consensus_classification.csv)
-        echo \$SEQ_OUT >> ${cluster_id}_classification.log
-        echo ${params.classification}
-        else
-        cat $cluster_log > ${cluster_id}_classification.log
-        echo -n ";" >> ${cluster_id}_classification.log
-        KR_OUT=\$(sed 's/\t/;/g' consensus_classification.csv | tr -s ' ' | sed 's/; /;/g' | cut -d ';' -f3,4,5,6 | grep -v '^0' | awk 'BEGIN {FS=";"; OFS=";"} {print \$4, \$3, \$2}')
-        echo \$KR_OUT >> ${cluster_id}_classification.log
-        fi
-        """
+        else {
+            """
+            echo "chosen classification: kraken2"
+            kraken2 --db $db --report consensus_classification.csv --output classification_out.tsv $consensus
+            cat $cluster_log > ${cluster_id}_classification.log
+            echo -n ";" >> ${cluster_id}_classification.log
+            KR_OUT=\$(sed 's/\t/;/g' consensus_classification.csv | tr -s ' ' | sed 's/; /;/g' | cut -d ';' -f3,4,5,6 | grep -v '^0' | awk 'BEGIN {FS=";"; OFS=";"} {print \$4, \$3, \$2}')
+            echo \$KR_OUT >> ${cluster_id}_classification.log
+            """
+        }
     }
     else if(params.classification=='blast'){
         db = resolve_blast_db_path(params.db)
@@ -645,7 +657,7 @@ process plot_abundances {
 }
 
 if(!params.onGridIon){
-        Channel.value(params.kit).set{barcoding_kit}
+        Channel.from(params.kit, 'unknown').set{barcoding_kit}
     }
 
 if(params.generateReports){
@@ -669,12 +681,12 @@ if(params.generateReports){
     }
 
     process generate_reports {
-        publishDir "${params.outdir}/${barcode}", mode: 'copy'
+        publishDir "${params.outdir}/patient_reports", mode: 'copy'
 
         input:
         tuple val(barcode), file(table), val(reads_count) from samplsheet_csv_ch.splitCsv().flatten().join(final_counts_ch.join(reads_count_ch), remainder: true)
         file(controls) from collected_metadata_ch.collect()
-        val(kit) from barcoding_kit
+        tuple val(kit), val(run_id) from barcoding_kit.collect()
 
         output:
         file('*.html') into reports_ch mode flatten
@@ -699,6 +711,7 @@ if(params.generateReports){
             --reads_count ${reads_count} \
             --kit ${kit} \
             --report_template ${report_template} \
+            --run_id ${run_id}
         """
     }
 }
