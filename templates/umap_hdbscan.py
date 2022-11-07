@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+from hashlib import sha1
 import numpy as np
 import umap
 import matplotlib.pyplot as plt
@@ -7,6 +8,7 @@ from sklearn import decomposition
 import random
 import pandas as pd
 import hdbscan
+import sys
 
 df = pd.read_csv("$kmer_freqs", delimiter="\t")
 
@@ -27,6 +29,9 @@ print(min_samp)
 
 #HDBSCAN
 X = umap_out.loc[:,["D1", "D2"]]
+print(X.shape)
+if X.shape[0] == 1:
+    sys.exit(73)
 umap_out["bin_id"] = hdbscan.HDBSCAN(min_cluster_size=int($params.min_cluster_size), cluster_selection_epsilon=int($params.cluster_sel_epsilon), min_samples=min_samp).fit_predict(X)
 
 #PLOT
