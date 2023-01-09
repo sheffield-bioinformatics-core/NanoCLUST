@@ -15,138 +15,6 @@ from collections import OrderedDict
 import pkg_resources
 from bokeh.resources import INLINE
 
-class HTMLReport(report.HTMLSection):
-    """Generate HTML Report from a series of bokeh figures.
-    Items added to the report take an optional key argument, adding items
-    with the same key allows an update in place whilst maintaining the order
-    in which items were added. Items can be grouped into sections for easier
-    out of order addition.
-    """
-
-    def __init__(self, title="", lead="", report_template="", require_keys=False, style='ont'):
-        """Initialize the report item collection.
-        :param title: report title.
-        :param lead: report strapline, shown below title.
-        :param require_keys: require keys when adding items.
-        """
-        super().__init__(require_keys=require_keys)
-        self.title = title
-        self.lead = lead
-        self.sections = OrderedDict()
-        self.sections['main'] = self
-        self.style = style
-
-        self.CSS_RESOURCES = dict(
-                bootstrap='bootstrap.min.css',
-                datatables='simple-datatables_latest.css',
-                ont='custom-ont.css',
-                ond='custom-ond.css',
-                epi2me='custom-epi2me.css'
-        )
-
-        template = report_template
-        with open(template, 'r', encoding="UTF-8") as fh:
-            template = fh.read()
-        self.template = Template(template)
-
-    def add_section(self, key=None, section=None, require_keys=False):
-        """Add a section (grouping of items) to the report.
-        :param key: unique key for section.
-        :param section: `HTMLSection` to add rather than creating anew.
-        :returns: the report section.
-        """
-        if key is None:
-            key = str(uuid.uuid4())
-        section = report._maybe_new_report(section, require_keys=require_keys)
-        self.sections[key] = section
-        return self.sections[key]
-
-    def render(self):
-        """Generate HTML report containing figures."""
-        bokeh_resources = INLINE.render()
-
-        libs = []
-        css_files = ['bootstrap', 'datatables', self.style]
-        CSS_RESOURCES = [self.CSS_RESOURCES[file] for file in css_files]
-        JS_RESOURCES = ['simple-datatables_latest.js']
-        for resources, stub in (
-                [CSS_RESOURCES, "<style>{}</style>"],
-                [JS_RESOURCES, '<script type="text/javascript">{}</script>']):
-            for res in resources:
-                fn = pkg_resources.resource_filename(
-                    "aplanat.report", 'data/{}'.format(res))
-                with open(fn, encoding="UTF-8") as fh:
-                    libs.append(stub.format(fh.read()))
-
-        all_scripts = list()
-        all_divs = list()
-        for sec_name, section in self.sections.items():
-            scripts, divs = section.components()
-            all_scripts.extend(scripts)
-            all_divs.extend(divs)
-
-        script = '\n'.join(all_scripts)
-        divs = '\n'.join(all_divs)
-        return self.template.render(
-            title=self.title, lead=self.lead, logo="UoS",
-            bokeh_resources=bokeh_resources, resources="\n".join(libs),
-            script=script, div=divs)
-
-    def write(self, path):
-        """Write html report to file."""
-        with open(path, "w", encoding='utf8') as outfile:
-            outfile.write(self.render())
-
-#need our own UoSReport class
-
-class UoSReport(HTMLReport):
-    """Report template for Sheffield Bioinformatics NanoCLUST workflow."""
-
-    def __init__(
-            self, title, report_template, workflow=None, commit=None, revision=None,
-            require_keys=False, about=True, style='ont'):
-        """Initialize the report item collection.
-        :param workflow: workflow name (NanoCLUST)
-        :param title: report title.
-        :param require_keys: require keys when adding items.
-        """
-        if commit is None:
-            commit = "unknown"
-        if revision is None:
-            revision = "unknown"
-        self.commit = commit
-        self.revision = revision
-        self.workflow = workflow
-        self.about = about
-        self.style = style
-
-        lead = (
-            "Results generated through the {} Nextflow workflow "
-            "provided by University of Sheffield Bioinformatics.".format(workflow))
-        super().__init__(
-            title=title, lead=lead, report_template=report_template, require_keys=require_keys, style=style)
-        self.tail_key = str(uuid.uuid4())
-
-    def render(self):
-        """Generate HTML report containing figures."""
-        # delete and re-add the tail (in case we are called twice,
-        # and something was added).
-        try:
-            del self.sections[self.tail_key]
-        except KeyError:
-            pass
-
-        if self.about:
-            self.add_section(key=self.tail_key).markdown("""
-    ### About
-    This report was produced using the
-    [sheffield-bioinformatics-core/{0}](https://github.com/sheffield-bioinformatics-core/{0}).  The
-    workflow can be run using `nextflow sheffield-bioinformatics-core/{0} --help`
-    **Version details** *Revision*: {1} *Git Commit*: {2}
-    ---
-    """.format(self.workflow, self.revision, self.commit))
-        return super().render()
-
 def read_patient_info(file, barcode):
     #funtion parsing CSV patient file and looking up info for relevant barcode
     info=pd.read_excel(file, usecols=range(0,7))
@@ -232,6 +100,9 @@ def main():
         "--report_template",
         help="path to report template")
     parser.add_argument(
+        "--logo",
+        help="custom logo")
+    parser.add_argument(
         "--run_id", default='unknown',
         help="Run ID of the sequencing run")
     args = parser.parse_args()
@@ -240,10 +111,10 @@ def main():
         metadata_table_list=read_patient_info(args.info, args.barcode)
         for patient in metadata_table_list:
             title="Patient " + patient.iloc[0,1] + " Report"
-            report = UoSReport(
-                title=title, report_template=args.report_template, about=False)
+            reprt = report.UoSReport(
+                title=title, report_template=args.report_template, about=False, style='UoS', logo=args.logo)
 
-            section=report.add_section()
+            section=reprt.add_section()
             section.markdown('''
             ### Sample Information
 
@@ -252,7 +123,7 @@ def main():
 
             section.table(patient.iloc[[0,1,2,4,6]])
 
-            section=report.add_section()
+            section=reprt.add_section()
 
             assay_type=patient.iloc[4]['Sample Information']
             if assay_type == '16S':
@@ -266,7 +137,7 @@ def main():
             <font color="red">**{0} rRNA NOT detected**</font>
             '''.format(assay_info))
 
-            report.write("patient_report_" + str(patient.iloc[1,1]) + ".html")
+            reprt.write("patient_report_" + str(patient.iloc[1,1]) + ".html")
     else:        
         metadata_table=read_patient_info(args.info, args.barcode)
         title="Patient " + metadata_table.iloc[0,1] + " Report"
@@ -278,11 +149,11 @@ def main():
 
         positive,negative=process_controls(args.controls)
 
-        report = UoSReport(
+        reprt = report.UoSReport(
             title=title, workflow="NanoCLUST", report_template=args.report_template,
-            revision=args.revision, commit=args.commit)
+            revision=args.revision, commit=args.commit, style='UoS', logo=args.logo)
 
-        section=report.add_section()
+        section=reprt.add_section()
         section.markdown('''
         ### Sample Information
 
@@ -291,7 +162,7 @@ def main():
 
         section.table(metadata_table.iloc[[0,2,4,6]])
 
-        section=report.add_section()
+        section=reprt.add_section()
 
         section.markdown('''
         ### Results
@@ -302,6 +173,7 @@ def main():
         '''.format(args.reads_count))
 
         assay_type=metadata_table.loc[metadata_table['Metadata'] == 'Assay', 'Sample Information'].iloc[0]
+
         if assay_type == '16S':
             database_info="16s bacterial sequencing results were compared against 16S & 18S database, build 18 Jan 2022."
             infection_type='bacterial'
@@ -312,14 +184,14 @@ def main():
             assay_info='Fungal ITS2'
 
         if results_table is not None:
-            section.table(results_table)
+            section.table(results_table, classes=['highlighted', 'larger-first-column'])
         else:
             section.markdown('''
             <font color="red">**{0} rRNA NOT detected**</font>
             '''.format(assay_info))
         
 
-        section=report.add_section()
+        section=reprt.add_section()
         section.markdown('''
         ### Run QC
 
@@ -333,7 +205,7 @@ def main():
             Total reads in negative control: {0} 
             '''.format(negative['Number of Reads'].sum()))
 
-            section.table(negative)
+            section.table(negative, classes='larger-first-column')
         else:
             section.markdown('''
             No species detected in negative control.
@@ -349,7 +221,7 @@ def main():
             Total reads in positive control: {0}
             '''.format(positive['Number of Reads'].sum()))
             
-            section.table(positive)
+            section.table(positive, classes='larger-first-column')
         else:
             comment+=2
             section.markdown('''
@@ -369,28 +241,22 @@ def main():
             comment: <font color="red">QC for this sample has **failed** and results cannot be validated</font>
             ''')
 
-        section=report.add_section()
+        section=reprt.add_section()
         run_id=args.run_id
         barcoding_kit=args.kit
         print(barcoding_kit)
         demux_method=args.demux
         species_database=metadata_table['Sample Information'].iloc[4]
         clustering_size=args.clustering_size
+
+        run_params=pd.DataFrame(list(zip(['Run ID: '+str(run_id), 'Barcoding kit: '+str(barcoding_kit), 'Demultiplex method: '+str(demux_method)], ['Species database: '+str(species_database), 'Clustering size: '+str(clustering_size), 'Sample barcode: '+str(metadata_table.iloc[1,1])])), columns=['GridIon properties', 'NanoCLUST properties'])
+        #run_params.reset_index(drop=True, inplace=True)
+
         section.markdown('''
         ### Run parameters
-
-        **Run ID**: {0}
-
-        **Barcoding kit**: {1}
-
-        **Demultiplex method**: {2}
-
-        **Species Database**: {3}
-
-        **Clustering Size**: {4}
-
-        **Sample barcode**: {5}
-
+        ''')
+        section.table(run_params)
+        section.markdown('''
         Sample was sequenced on a ONT GridION Mk1. 
         Sequencing data was processed and analysed using a custom nanoclust pipeline.
         {6}
@@ -398,7 +264,7 @@ def main():
         '''.format(run_id, barcoding_kit, demux_method, species_database, clustering_size, metadata_table.iloc[1,1], database_info))
 
         #write report
-        report.write(args.output + "_" + str(metadata_table.iloc[1,1]) + ".html")
+        reprt.write(args.output + "_" + str(metadata_table.iloc[1,1]) + ".html")
 
 
 if __name__ == "__main__":

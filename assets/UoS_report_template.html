@@ -11,15 +11,19 @@
     {{ bokeh_resources }}
     {{ script }}
 </head>
-<body>
+<body style="line-height: 1;">
   <div class="navbar navbar-branded mb-4">
-      <div class="container float-left">
+      <div class="container float-left" style="flex-wrap: nowrap;">
         <div>
           <h1>{{ title }}</h1>
           <p class="lead">{{ lead }}</p>
         </div>
         <div class="float-right">
-          <span class="float-left sticker-white">{{ logo }}</span>
+            <img src="{{ logo }}"
+            style="object-fit:contain;
+                     width:200px;
+                     height:auto;"
+            alt="UoS logo"></img>
         </div>
       </div>
   </div>

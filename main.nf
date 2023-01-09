@@ -696,6 +696,7 @@ if(params.generateReports){
         revision=workflow.revision
         clustering_size=params.umap_set_size
         report_template="$baseDir/assets/UoS_report_template.html"
+        logo="$baseDir/assets/UoS_white_logo.txt"
         """
         echo ${barcode}
         echo ${table}
@@ -711,6 +712,7 @@ if(params.generateReports){
             --reads_count ${reads_count} \
             --kit ${kit} \
             --report_template ${report_template} \
+            --logo ${logo} \
             --run_id ${run_id}
         """
     }
