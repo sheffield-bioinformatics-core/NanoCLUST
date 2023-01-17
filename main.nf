@@ -272,7 +272,7 @@ process QC {
 
     script:
     """
-    barcode=${reads.baseName}
+    barcode=${reads.simpleName}
     fastqc -q $reads
     fastp -i $reads -q 8 -l ${params.min_read_length} --length_limit ${params.max_read_length} -o \$barcode\\_qced_reads.fastq -h \$barcode\\_fastp.html
     reads_count=\$(grep 'runid' \$barcode\\_qced_reads.fastq | wc -l)
