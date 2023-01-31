@@ -368,6 +368,11 @@ process read_correction {
     """
     head -n\$(( $count*4 )) $reads > subset.fastq
     canu -correct -p corrected_reads -nanopore-raw subset.fastq genomeSize=${params.avg_amplicon_size} stopOnLowCoverage=${params.stopOnLowCoverage} minInputCoverage=${params.minInputCoverage} minReadLength=${params.minReadLength} minOverlapLength=${params.minOverlapLength} useGrid=${params.useGrid}
+    if grep "Found 0 reads" corrected_reads.report
+    then
+        echo "Canu read correction has failed and the sample will be discontinued"
+        exit 84
+    fi
     gunzip corrected_reads.correctedReads.fasta.gz
     READ_COUNT=\$(( \$(awk '{print \$1/2}' <(wc -l corrected_reads.correctedReads.fasta)) ))
     cat $cluster_log > ${cluster_id}_racon.log
