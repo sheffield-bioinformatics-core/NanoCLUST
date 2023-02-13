@@ -32,7 +32,7 @@ X = umap_out.loc[:,["D1", "D2"]]
 print(X.shape)
 if X.shape[0] == 1:
     sys.exit(73)
-umap_out["bin_id"] = hdbscan.HDBSCAN(min_cluster_size=int($params.min_cluster_size), cluster_selection_epsilon=int($params.cluster_sel_epsilon), min_samples=min_samp).fit_predict(X)
+umap_out["bin_id"] = hdbscan.HDBSCAN(min_cluster_size=int($params.min_cluster_size), cluster_selection_epsilon=int($params.cluster_sel_epsilon), min_samples=min_samp, allow_single_cluster=True).fit_predict(X)
 
 #PLOT
 plt.figure(figsize=(20,20))

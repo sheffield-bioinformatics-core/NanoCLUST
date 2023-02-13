@@ -17,7 +17,7 @@ from bokeh.resources import INLINE
 
 def read_patient_info(file, barcode):
     #funtion parsing CSV patient file and looking up info for relevant barcode
-    info=pd.read_excel(file, usecols=range(0,7))
+    info=pd.read_excel(file, usecols=range(0,11))
     #return row with a barcode as a Series
     if barcode=="discontinued":
         relevant_row=[]
@@ -105,11 +105,23 @@ def main():
     parser.add_argument(
         "--run_id", default='unknown',
         help="Run ID of the sequencing run")
+    parser.add_argument(
+        "--seq_start", default='unknown',
+        help="Start time of the sequencing run")
     args = parser.parse_args()
     if args.barcode=="discontinued":
 
         metadata_table_list=read_patient_info(args.info, args.barcode)
+                
         for patient in metadata_table_list:
+            restructured=[]
+            for index, row in patient.iloc[[0,2,1,4,6,7,10]].iterrows():
+                print(row['Metadata'])
+                print(row['Sample Information'])
+                restructured.append(": ".join([str(row['Metadata']), str(row['Sample Information'])]))
+            restructured.insert(4, " ".join(["Sequencing start:", args.seq_start]))
+            rest_df=pd.DataFrame(list(zip(restructured[:4],restructured[4:])), columns=['Sample Information', 'Time Stamps'])
+
             title="Patient " + patient.iloc[0,1] + " Report"
             reprt = report.UoSReport(
                 title=title, report_template=args.report_template, about=False, style='UoS', logo=args.logo)
@@ -117,11 +129,9 @@ def main():
             section=reprt.add_section()
             section.markdown('''
             ### Sample Information
-
-            This section displays the basic metadata.
             ''')
 
-            section.table(patient.iloc[[0,1,2,4,6]])
+            section.table(rest_df)
 
             section=reprt.add_section()
 
@@ -140,6 +150,12 @@ def main():
             reprt.write("patient_report_" + str(patient.iloc[1,1]) + ".html")
     else:        
         metadata_table=read_patient_info(args.info, args.barcode)
+        restructured=[]
+        for index, row in metadata_table.iloc[[0,2,1,4,6,7,10]].iterrows():
+            restructured.append(": ".join([str(row['Metadata']), str(row['Sample Information'])]))
+        restructured.insert(4, " ".join(["Sequencing start:", args.seq_start]))
+        rest_df=pd.DataFrame(list(zip(restructured[:4],restructured[4:])), columns=['Sample Information', 'Time Stamps'])
+
         title="Patient " + metadata_table.iloc[0,1] + " Report"
 
         if args.infile == "input.1":
@@ -156,11 +172,9 @@ def main():
         section=reprt.add_section()
         section.markdown('''
         ### Sample Information
-
-        This section displays the basic metadata.
         ''')
 
-        section.table(metadata_table.iloc[[0,2,4,6]])
+        section.table(rest_df)
 
         section=reprt.add_section()
 
@@ -168,8 +182,6 @@ def main():
         ### Results
 
         Total reads in this sample: {0}
-        
-        Matched species:
         '''.format(args.reads_count))
 
         assay_type=metadata_table.loc[metadata_table['Metadata'] == 'Assay', 'Sample Information'].iloc[0]

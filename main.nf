@@ -92,7 +92,7 @@ else if(params.demultiplex_porechop){
 }
 else if(params.onGridIon) {
     Channel.fromPath(params.reads, type:'dir').set { for_guppy_demux }
-    Channel.fromPath(["$workflow.launchDir/../final_summary*.txt", "$workflow.launchDir/../report*.pdf"]).set { metadata_files }
+    Channel.fromPath("$workflow.launchDir/../final_summary*.txt").set { metadata_files }
 }
 else{
     Channel.fromPath(params.reads).set { reads }
@@ -241,19 +241,21 @@ if(params.onGridIon){
 
         input:
         file(reads) from for_guppy_demux
-        file(meta) from metadata_files.last()
+        file(meta) from metadata_files
 
         output:
         file("barcode*.fastq") into reads mode flatten
-        tuple env(kit), env(run_id) into barcoding_kit
+        tuple env(kit), env(run_id), env(seq_start) into barcoding_kit
 
         script:
         """
-        kit=\$(pdftotext $meta - | grep -A2 "Barcoding" | tail -n1 | grep -o '\\[.*]' | cut -d "\\"" -f2 | sed -e "s/\\(...\\)\\(\\)/\\1-\\2/")
-        run_id=\$(pdftotext $meta - | grep -A2 "Run ID" | tail -n1)
+        kit=\$(grep "protocol=" $meta | cut -d ":" -f3)
+        run_id=\$(grep "protocol_run_id=" $meta | cut -d "=" -f2)
+        seq_start=\$(grep 'started=' $meta | cut -d "=" -f2 | cut -d "." -f1 | sed 's/-/\\//g' | sed 's/T/ /g' | awk 'BEGIN{FS=OFS=" "} {split(\$1, a, /\\//); \$1 = a[3] "/" a[2] "/" a[1]} 1')
         echo \$kit
         echo \$run_id
-        guppy_barcoder -i $reads -s . -r --barcode_kits \$kit --require_barcodes_both_ends
+        echo \$seq_start
+        guppy_barcoder -i $reads -s . -r --barcode_kits \$kit --require_barcodes_both_ends -x cuda:0
         for i in barcode*; do cat \$i/* > \$i.fastq; done
         """
     }
@@ -691,7 +693,7 @@ if(params.generateReports){
         input:
         tuple val(barcode), file(table), val(reads_count) from samplsheet_csv_ch.splitCsv().flatten().join(final_counts_ch.join(reads_count_ch), remainder: true)
         file(controls) from collected_metadata_ch.collect()
-        tuple val(kit), val(run_id) from barcoding_kit.collect()
+        tuple val(kit), val(run_id), val(seq_start) from barcoding_kit.collect()
 
         output:
         file('*.html') into reports_ch mode flatten
@@ -718,7 +720,8 @@ if(params.generateReports){
             --kit ${kit} \
             --report_template ${report_template} \
             --logo ${logo} \
-            --run_id ${run_id}
+            --run_id ${run_id} \
+            --seq_start "${seq_start}"
         """
     }
 }
