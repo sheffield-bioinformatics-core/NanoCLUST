@@ -713,7 +713,7 @@ if(params.generateReports){
             --output patient_report \
             --barcode ${barcode} \
             --info $info_file \
-            --demux 'Guppy 5.1.13' \
+            --demux 'Guppy 6.4.6' \
             --clustering_size $clustering_size \
             --controls ${controls} \
             --reads_count ${reads_count} \
