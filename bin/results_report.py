@@ -142,6 +142,7 @@ def main():
                 assay_info = 'Fungal ITS2'
 
             section.markdown('''
+            <br/>
             ### Results
 
             <font color="red">**{0} rRNA NOT detected**</font>
@@ -179,6 +180,7 @@ def main():
         section=reprt.add_section()
 
         section.markdown('''
+        <br/>
         ### Results
 
         Total reads in this sample: {0}
@@ -205,6 +207,7 @@ def main():
 
         section=reprt.add_section()
         section.markdown('''
+        <br/>
         ### Run QC
 
 
@@ -224,6 +227,7 @@ def main():
             ''')
 
         section.markdown('''
+        <br/>
         **POSITIVE CONTROL**
         ''')
 
