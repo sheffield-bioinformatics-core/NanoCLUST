@@ -11,6 +11,8 @@
 
 //nextflow.enable.dsl = 2
 
+import groovy.io.FileType
+
 log.info nfcoreHeader()
 def helpMessage() {
     
@@ -746,6 +748,27 @@ process output_documentation {
  */
 workflow.onComplete {
 
+    if (params.generateReports && params.email) {
+        def msg1 = """\
+            Pipeline execution summary
+            ---------------------------
+            Completed at: ${workflow.complete}
+            Duration    : ${workflow.duration}
+            Success     : ${workflow.success}
+            workDir     : ${workflow.workDir}
+            exit status : ${workflow.exitStatus}
+            """
+            .stripIndent()
+
+        def currentdir = new File("$params.outdir/patient_reports")
+        def files = []
+        currentdir.eachFile(FileType.FILES) {
+            files << it.path
+        }
+
+        sendMail(to: params.email, subject: "Patient Reports", body: msg1, attach: files)
+    }
+
     // Set up the e-mail variables
     def subject = "[nf-core/nanoclust] Successful: $workflow.runName"
     if (!workflow.success) {
@@ -792,8 +815,12 @@ workflow.onComplete {
 
     // Check if we are only sending emails on failure
     email_address = params.email
-    if (!params.email && params.email_on_fail && !workflow.success) {
+    if (params.email_on_fail && !workflow.success) {
         email_address = params.email_on_fail
+    } 
+
+    if (params.email_on_fail && workflow.success) {
+        email_address = false
     }
 
     // Render the TXT template
