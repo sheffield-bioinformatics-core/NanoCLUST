@@ -31,13 +31,13 @@ def get_taxname_from_dmp(data, tax_id, tax_level):
     tax_level_tag = tags[tax_level]
 
     if str(tax_id) == "nan":
-        tax_id = 1
-
-    name = data.loc[data['taxid'] == tax_id, tax_level_tag].iloc[0]
-    if type(name) != str:
-        name = data.loc[data['taxid'] == tax_id, "name"].iloc[0]
+        name = 'unclassified'
+    else:
+        name = data.loc[data['taxid'] == tax_id, tax_level_tag].iloc[0]
         if type(name) != str:
-            name = data.loc[data['taxid'] == tax_id, "sciname"].iloc[0]
+            name = data.loc[data['taxid'] == tax_id, "name"].iloc[0]
+            if type(name) != str:
+                name = data.loc[data['taxid'] == tax_id, "sciname"].iloc[0]
 
     return name
 
