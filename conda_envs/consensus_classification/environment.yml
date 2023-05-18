@@ -4,6 +4,6 @@ channels:
   - bioconda
   - defaults
 dependencies:
-  - blast =2.10.1
+  - blast
   - rdptools
   - kraken2

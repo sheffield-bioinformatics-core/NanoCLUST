@@ -1,4 +1,4 @@
-#!/usr/bin/env nextflow
+ #!/usr/bin/env nextflow
 /*
 ========================================================================================
                          nf-core/nanoclust
@@ -48,12 +48,13 @@ def helpMessage() {
       --useGrid                     Default (false)
 
     Classification options:
-      --classification              Classification algorithm to choose from: seqmatch, kraken2, blast. Default (blast)
+      --classification              Classification algorithm to choose from: seqmatch, kraken2, blast or full. Default (blast)
       --db                          Path to local database folder. If not specified for blast, search will be done againts NCBI 16S Microbial
       --tax                         Path to taxdb database which contains the names for the --db entries (blast) or RankedLineage.dmp file (kraken2)
       --accession                   Path to accession file with mapping between RDP tags and taxid. Required only for seqmatch.
-      --reclassifyOnFail            Whether to reclassify kraken2 results with Seqmatch if species resolution hasn't been achieved (false)
-      --db2                         Seqmatch database required if reclassifyOnFail is set to true
+      --reclassifyOnFail            Whether to reclassify kraken2 results with Seqmatch if species resolution hasn't been achieved. Redundant when classify set to full. (false)
+      --db2                         Path to seqmatch database required if reclassifyOnFail is set to true or classification set to full. 
+      --blast_db                    Path to blast nucleotide database required if classification set to full. 
 
     Reports options:
       --generateReports            Whether to generate PDF sample reports (false)
@@ -94,7 +95,7 @@ else if(params.demultiplex_porechop){
 }
 else if(params.onGridIon) {
     Channel.fromPath(params.reads, type:'dir').set { for_guppy_demux }
-    Channel.fromPath("$workflow.launchDir/../final_summary*.txt").set { metadata_files }
+    Channel.fromPath(["$workflow.launchDir/../report*.html", "$workflow.launchDir/../final_summary*.txt"]).set { metadata_files }
 }
 else{
     Channel.fromPath(params.reads).set { reads }
@@ -238,26 +239,44 @@ if(params.demultiplex_porechop){
 
 if(params.onGridIon){
 
+    process process_metadata {
+
+        input:
+        tuple file(report), file(summ) from metadata_files.collect()
+
+        output:
+        tuple env(kit), env(run_id), env(seq_start) into barcoding_kit
+
+        script:
+        """
+        if grep -q "Expansion kit" ${report}
+        then
+            kit=\$(grep "Expansion kit" ${report} -A1 | tail -n1| grep -oP '(?<=\\>).*?(?=\\<)')
+        else
+            kit=\$(grep "Kit type" ${report} -A1 | tail -n1| grep -oP '(?<=\\>).*?(?=\\<)')
+        fi
+        run_id=\$(grep "protocol_run_id=" ${summ} | cut -d "=" -f2)
+        seq_start=\$(grep 'started=' ${summ} | cut -d "=" -f2 | cut -d "." -f1 | sed 's/-/\\//g' | sed 's/T/ /g' | awk 'BEGIN{FS=OFS=" "} {split(\$1, a, /\\//); \$1 = a[3] "/" a[2] "/" a[1]} 1')
+        echo \$kit
+        echo \$run_id
+        echo \$seq_start
+        """
+
+    }
+
     process guppy_barcoder {
         publishDir "${params.outdir}/guppy_demux", mode: 'copy'
 
         input:
         file(reads) from for_guppy_demux
-        file(meta) from metadata_files
+        tuple val(kit), val(run_id), val(seq_start) from barcoding_kit.collect()
 
         output:
         file("barcode*.fastq") into reads mode flatten
-        tuple env(kit), env(run_id), env(seq_start) into barcoding_kit
 
         script:
         """
-        kit=\$(grep "protocol=" $meta | cut -d ":" -f3)
-        run_id=\$(grep "protocol_run_id=" $meta | cut -d "=" -f2)
-        seq_start=\$(grep 'started=' $meta | cut -d "=" -f2 | cut -d "." -f1 | sed 's/-/\\//g' | sed 's/T/ /g' | awk 'BEGIN{FS=OFS=" "} {split(\$1, a, /\\//); \$1 = a[3] "/" a[2] "/" a[1]} 1')
-        echo \$kit
-        echo \$run_id
-        echo \$seq_start
-        guppy_barcoder -i $reads -s . -r --barcode_kits \$kit --require_barcodes_both_ends -x cuda:0
+        guppy_barcoder -i $reads -s . -r --barcode_kits ${kit} --require_barcodes_both_ends -x cuda:0
         for i in barcode*; do cat \$i/* > \$i.fastq; done
         """
     }
@@ -270,7 +289,7 @@ process QC {
     file(reads) from reads
 
     output:
-    tuple env(barcode), file("*qced_reads_set.fastq") into qc_results
+    tuple env(barcode), file("*qced_reads.fastq") into qc_results
     tuple env(barcode), env(reads_count) into reads_count_ch
     file("*.{html,json}")
 
@@ -280,8 +299,41 @@ process QC {
     fastqc -q $reads
     fastp -i $reads -q 8 -l ${params.min_read_length} --length_limit ${params.max_read_length} -o \$barcode\\_qced_reads.fastq -h \$barcode\\_fastp.html
     reads_count=\$(grep 'runid' \$barcode\\_qced_reads.fastq | wc -l)
-    head -n\$(( ${params.umap_set_size}*4 )) \$barcode\\_qced_reads.fastq > \$barcode\\_qced_reads_set.fastq
-    fastqc -q \$barcode\\_qced_reads_set.fastq
+    """
+}
+
+if(params.remove_unclassified){
+    process remove_unclassified {
+
+        input: 
+        tuple val(barcode), file(qced_reads) from qc_results
+
+        output: 
+        tuple val(barcode), file("*classified.fastq") into for_subsetting_ch
+
+        script:
+        kraken2_db=params.db
+        """
+        kraken2 --db $kraken2_db --report kraken2_consensus_classification.csv --output classification_out.tsv --classified-out ${barcode}_classified.fastq $qced_reads
+        """
+    }
+}
+else {
+    for_subsetting_ch = qc_results.take(-1)
+}
+
+process subset_reads {
+
+    input: 
+    tuple val(barcode), file(classified_reads) from for_subsetting_ch
+
+    output:
+    tuple val(barcode), file("*subset.fastq") into for_clustering_ch
+
+    script:
+    """
+    head -n\$(( ${params.umap_set_size}*4 )) $classified_reads > ${barcode}_subset.fastq
+    fastqc -q ${barcode}_subset.fastq
     """
 }
 
@@ -306,15 +358,15 @@ if(params.multiqc){
 process kmer_freqs {
 
     input:
-    tuple val(barcode), file(qced_reads) from qc_results
+    tuple val(barcode), file(reads) from for_clustering_ch
 
     output:
     file "freqs.txt" into freqs
-    tuple val(barcode), file(qced_reads) into freqs_qc_results
+    tuple val(barcode), file(reads) into freqs_qc_results
 
     script:   
     """
-    kmer_freq.py -r $qced_reads > freqs.txt
+    kmer_freq.py -r $reads > freqs.txt
     """
 
 }
@@ -472,20 +524,51 @@ process medaka_pass {
 
 process consensus_classification {
     publishDir "${params.outdir}/${barcode}/cluster${cluster_id}", mode: 'copy'
+    /*
     time '3m'
     errorStrategy { sleep(1000); return 'retry' }
     maxRetries 5
+    */
 
     input:
     tuple val(barcode), val(cluster_id), file(cluster_log), file(consensus) from final_consensus
 
     output:
-    file('consensus_classification.csv')
+    file('*consensus_classification.csv')
     file('classification_out.tsv') optional true
     tuple val(barcode), file('*_classification.log') into classifications_ch
 
     script:
-    if(params.classification=='seqmatch'){
+    if(params.classification=='full'){
+        kraken2_db=params.db
+        seqmatch_db=params.db2
+        seqmatch_accession=params.accession
+        blast_db=params.blast_db
+        """
+        echo "chosen classification: full"
+        echo "classifying with kraken2"
+        kraken2 --db $kraken2_db --report kraken2_consensus_classification.csv --output classification_out.tsv $consensus
+        KR_OUT=\$(sed 's/\t/;/g' kraken2_consensus_classification.csv | tr -s ' ' | sed 's/; /;/g' | cut -d ';' -f3,4,5,6 | grep -v '^0' | awk 'BEGIN {FS=";"; OFS=";"} {print \$4, \$3, \$2}')
+        
+        echo "classifying with seqmatch"
+        SequenceMatch seqmatch -k 5 $seqmatch_db $consensus | cut -f2,4 | sort | join -t \$'\t' -1 1 -2 1 -o 2.3,2.5,1.2 - $seqmatch_accession | sort -k3 -n -r -t '\t' | sed 's/\t/;/g' > seqmatch_consensus_classification.csv
+        SEQ_OUT=\$(head -n1 seqmatch_consensus_classification.csv)
+
+        echo "classifying with blastn"
+        export BLASTDB=\$(dirname $blast_db)
+        blastn -query $consensus -db \$(basename $blast_db) -task megablast -dust no -outfmt "10 sscinames staxids evalue length pident bitscore" -evalue 11 -max_hsps 50 -max_target_seqs 5 | sed 's/,/;/g' > blastn_consensus_classification.csv
+        BLAST_OUT=\$(cut -d";" -f1,2,5 blastn_consensus_classification.csv | head -n1)
+
+        FULL_OUT="\${KR_OUT}\n\${SEQ_OUT}\n\${BLAST_OUT}"
+
+        cat $cluster_log > ${cluster_id}_classification.log
+        echo -n ";" >> ${cluster_id}_classification.log
+        echo \$KR_OUT >> ${cluster_id}_classification.log
+        echo \$SEQ_OUT >> ${cluster_id}_classification.log
+        echo \$BLAST_OUT >> ${cluster_id}_classification.log
+        """
+    }
+    else if(params.classification=='seqmatch'){
         db=params.db
         accession=params.accession
         """
@@ -507,19 +590,20 @@ process consensus_classification {
             kraken2 --db $db --report consensus_classification.csv --output classification_out.tsv $consensus
             CLASS_LVL=\$(cut -f4 consensus_classification.csv | tail -n1)
             echo \$CLASS_LVL
-            if [[ \$CLASS_LVL != "S"* ]]; then
-            echo "reclassifying"
-            SequenceMatch seqmatch -k 5 $db2 $consensus | cut -f2,4 | sort | join -t \$'\t' -1 1 -2 1 -o 2.3,2.5,1.2 - $accession | sort -k3 -n -r -t '\t' | sed 's/\t/;/g' > consensus_classification.csv
-            cat $cluster_log > ${cluster_id}_classification.log
-            echo -n ";" >> ${cluster_id}_classification.log
-            SEQ_OUT=\$(head -n1 consensus_classification.csv)
-            echo \$SEQ_OUT >> ${cluster_id}_classification.log
-            echo ${params.classification}
+            if [[ \$CLASS_LVL != "S"* ]]
+            then
+                echo "reclassifying"
+                SequenceMatch seqmatch -k 5 $db2 $consensus | cut -f2,4 | sort | join -t \$'\t' -1 1 -2 1 -o 2.3,2.5,1.2 - $accession | sort -k3 -n -r -t '\t' | sed 's/\t/;/g' > consensus_classification.csv
+                cat $cluster_log > ${cluster_id}_classification.log
+                echo -n ";" >> ${cluster_id}_classification.log
+                SEQ_OUT=\$(head -n1 consensus_classification.csv)
+                echo \$SEQ_OUT >> ${cluster_id}_classification.log
+                echo ${params.classification}
             else
-            cat $cluster_log > ${cluster_id}_classification.log
-            echo -n ";" >> ${cluster_id}_classification.log
-            KR_OUT=\$(sed 's/\t/;/g' consensus_classification.csv | tr -s ' ' | sed 's/; /;/g' | cut -d ';' -f3,4,5,6 | grep -v '^0' | awk 'BEGIN {FS=";"; OFS=";"} {print \$4, \$3, \$2}')
-            echo \$KR_OUT >> ${cluster_id}_classification.log
+                cat $cluster_log > ${cluster_id}_classification.log
+                echo -n ";" >> ${cluster_id}_classification.log
+                KR_OUT=\$(sed 's/\t/;/g' consensus_classification.csv | tr -s ' ' | sed 's/; /;/g' | cut -d ';' -f3,4,5,6 | grep -v '^0' | awk 'BEGIN {FS=";"; OFS=";"} {print \$4, \$3, \$2}')
+                echo \$KR_OUT >> ${cluster_id}_classification.log
             fi
             """
         }
@@ -583,7 +667,33 @@ process join_results {
     tuple val(barcode), file('*.nanoclust_out.txt') into output_table_ch
 
     script:
-    if(params.classification=='blast'){
+    if(params.classification=='full'){
+        tax=params.tax
+        """
+        echo "chosen classification: full"
+        echo "id;reads_in_cluster;used_for_consensus;reads_after_corr;draft_id;kraken2_sciname;taxid;class_level;name;species;genus;family;order;_seqmatch_sciname;taxid;class_level;name;species;genus;family;order;blast_sciname;taxid;class_level;name;species;genus;family;order;" > ${barcode}.nanoclust_out.txt
+        for i in $logs; do
+            while read line; do
+                echo \$line
+                TAXID=\$(echo \$line | awk -F';' '{print \$(NF-1)}')
+                echo \$TAXID
+                TAXinDB=\$(grep -w "^\${TAXID}" $tax || [[ \$? == 1 ]])
+                echo \$TAXinDB
+                echo -n \$(echo \$line | tr -d '\n') >> ${barcode}.nanoclust_out.txt
+                if [ "\$TAXID" != "0" ] | [ "\$TAXID" != "" ] | [ "\$TAXinDB" != "" ]; then
+                    echo -n ";" >> ${barcode}.nanoclust_out.txt
+                    TAXONOMY=\$(grep -w "^\${TAXID}" $tax | tr -d '\t' | cut -d '|' -f2,3,4,5,6 --output-delimiter ';')
+                    echo -n "\$TAXONOMY;" >> ${barcode}.nanoclust_out.txt
+                else
+                    echo -n ";;;;;" >> ${barcode}.nanoclust_out.txt
+                fi
+            done <\$i
+            echo -e "\n" >> ${barcode}.nanoclust_out.txt
+        done
+        sed -i 's/.\$//' ${barcode}.nanoclust_out.txt
+        """
+    }
+    else if(params.classification=='blast'){
         """
         echo "chosen classification: blast"
         echo "id;reads_in_cluster;used_for_consensus;reads_after_corr;draft_id;sciname;taxid;length;per_ident" > ${barcode}.nanoclust_out.txt
