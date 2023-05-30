@@ -552,6 +552,11 @@ process consensus_classification {
         
         echo "classifying with seqmatch"
         SequenceMatch seqmatch -k 5 $seqmatch_db $consensus | cut -f2,4 | sort | join -t \$'\t' -1 1 -2 1 -o 2.3,2.5,1.2 - $seqmatch_accession | sort -k3 -n -r -t '\t' | sed 's/\t/;/g' > seqmatch_consensus_classification.csv
+        if [ -s seqmatch_consensus_classification.csv ]; then
+            echo "success"
+        else
+            echo "0;U" >> seqmatch_consensus_classification.csv
+        fi
         SEQ_OUT=\$(head -n1 seqmatch_consensus_classification.csv)
 
         echo "classifying with blastn"
@@ -671,7 +676,7 @@ process join_results {
         tax=params.tax
         """
         echo "chosen classification: full"
-        echo "id;reads_in_cluster;used_for_consensus;reads_after_corr;draft_id;kraken2_sciname;taxid;class_level;name;species;genus;family;order;_seqmatch_sciname;taxid;class_level;name;species;genus;family;order;blast_sciname;taxid;class_level;name;species;genus;family;order;" > ${barcode}.nanoclust_out.txt
+        echo "id;reads_in_cluster;used_for_consensus;reads_after_corr;draft_id;kraken2_sciname;taxid;class_level;name;species;genus;family;order;seqmatch_sciname;taxid;class_level;name;species;genus;family;order;blast_sciname;taxid;class_level;name;species;genus;family;order;" > ${barcode}.nanoclust_out.txt
         for i in $logs; do
             while read line; do
                 echo \$line
@@ -685,7 +690,7 @@ process join_results {
                     TAXONOMY=\$(grep -w "^\${TAXID}" $tax | tr -d '\t' | cut -d '|' -f2,3,4,5,6 --output-delimiter ';')
                     echo -n "\$TAXONOMY;" >> ${barcode}.nanoclust_out.txt
                 else
-                    echo -n ";;;;;" >> ${barcode}.nanoclust_out.txt
+                    echo -n ";;;;;;" >> ${barcode}.nanoclust_out.txt
                 fi
             done <\$i
             echo -e "\n" >> ${barcode}.nanoclust_out.txt

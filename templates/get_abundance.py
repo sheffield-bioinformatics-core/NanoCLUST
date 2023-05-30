@@ -4,6 +4,7 @@ import pandas as pd
 from functools import reduce
 import requests
 import json
+import numpy as np
 #https://unipept.ugent.be/apidocs/taxonomy
 
 def get_taxname(tax_id,tax_level):
@@ -45,10 +46,12 @@ def get_taxname_from_dmp(data, tax_id, tax_level):
 def get_abundance_values(names,paths):
     dfs = []
     for name,path in zip(names,paths):
-        data = pd.read_csv(path, index_col=False, sep=';').iloc[:,1:]
+        data1 = pd.read_csv(path, index_col=False, sep=';').iloc[:,1:]
 
-        total = sum(data['reads_in_cluster'])
+        total = sum(data1['reads_in_cluster'])
         rel_abundance=[]
+
+        data=choose_classification(data1)
 
         for index,row in data.iterrows():
             rel_abundance.append(row['reads_in_cluster'] / total * 100)
@@ -58,6 +61,39 @@ def get_abundance_values(names,paths):
         data.to_csv("" + name + "_nanoclust_out.txt")
 
     return dfs, data
+
+def choose_classification(dataframe):
+    print(dataframe)
+    chosen_frame=[]
+    if len(dataframe.columns)>13:
+        classification_score={}
+        for index, row in dataframe.iterrows():
+            print(row['class_level'])
+            if row['class_level']=="S":
+                chosen_frame.append(row.iloc[:12].tolist())
+            else:
+                classification_score["kraken2"]=sum(row.notna()[8:12])
+                classification_score["blast"]=sum(row.notna()[24:])
+                classification_score["seqmatch"]=sum(row.notna()[16:20])
+                choice=max(classification_score, key=classification_score.get)
+                
+                if choice == "kraken2":
+                    chosen_frame.append(row.iloc[:12].tolist())
+                elif choice == "seqmatch":
+                    chosen_frame.append(row.iloc[np.r_[0:4,13:20]].tolist())
+                else:
+                    chosen_frame.append(row.iloc[np.r_[0:4,20:28]].tolist())
+            
+        print("choosing classification")
+
+    print(chosen_frame)
+    chosen_df=pd.DataFrame(chosen_frame, columns=['reads_in_cluster', 'used_for_consensus', 'reads_after_corr', 'draft_id', 'classifier_name', 'taxid', 'stat', 'name', 'species', 'genus', 'family', 'order'])
+    print(len(chosen_df))
+    print(chosen_df)
+    # renamed_df=chosen_df.rename(columns={chosen_df.columns[5]: 'taxid'})
+    # print(renamed_df)
+
+    return chosen_df
 
 def merge_abundance(dfs, data, tax_level):
     df_final = reduce(lambda left,right: pd.merge(left,right,on='taxid',how='outer').fillna(0), dfs)
