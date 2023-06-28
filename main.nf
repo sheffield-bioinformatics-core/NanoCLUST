@@ -253,7 +253,8 @@ if(params.onGridIon){
         then
             kit=\$(grep "Expansion kit" ${report} -A1 | tail -n1| grep -oP '(?<=\\>).*?(?=\\<)')
         else
-            kit=\$(grep "Kit type" ${report} -A1 | tail -n1| grep -oP '(?<=\\>).*?(?=\\<)')
+            kit=\$(grep '"Kit type", "value":' ${report} | grep -o -P 'Kit.{0,35}' | cut -d '"' -f5)
+            
         fi
         run_id=\$(grep "protocol_run_id=" ${summ} | cut -d "=" -f2)
         seq_start=\$(grep 'started=' ${summ} | cut -d "=" -f2 | cut -d "." -f1 | sed 's/-/\\//g' | sed 's/T/ /g' | awk 'BEGIN{FS=OFS=" "} {split(\$1, a, /\\//); \$1 = a[3] "/" a[2] "/" a[1]} 1')
