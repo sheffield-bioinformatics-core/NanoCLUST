@@ -16,6 +16,16 @@ import pkg_resources
 from bokeh.resources import INLINE
 
 def read_patient_info(file, barcode):
+    """
+    Read patient info file and return relevant row for the barcode
+    
+    Args:
+        file (str): path to the patient info file
+        barcode (str): barcode identifier for the patient sample
+        
+    Returns:
+        list: list of pandas Series with patient info
+    """
     #funtion parsing CSV patient file and looking up info for relevant barcode
     info=pd.read_excel(file, usecols=range(0,11))
     #return row with a barcode as a Series
@@ -38,14 +48,39 @@ def read_patient_info(file, barcode):
     return relevant_row
 
 def read_abundance_results(file):
-    abundance_results=pd.read_csv(file)
-    abundance_results.columns=['Detected Species', 'Relative Abundance (%)', 'Number of Reads']
-    abundance_results['Relative Abundance (%)']=abundance_results['Relative Abundance (%)'].apply(np.around)
-    abundance_results_t3=abundance_results.head(n=3)
+    """
+    Read abundance results csv file and return top 3 results
 
+    Args:
+        file (path): path to the abundance results file    
+
+    Returns:
+        pandas.DataFrame: top 3 abundance results
+    """
+    # The abundance results file is a CSV file
+    abundance_results = pd.read_csv(file)
+    
+    # Rename the columns
+    abundance_results.columns = ['Detected Species', 'Relative Abundance (%)', 'Number of Reads']
+    
+    # Round the abundance results
+    abundance_results['Relative Abundance (%)'] = abundance_results['Relative Abundance (%)'].apply(np.around)
+    
+    # Return the top 3 abundance results
+    abundance_results_t3 = abundance_results.head(n=3)
+    
     return abundance_results_t3
 
 def process_controls(controls):
+    """
+    Process controls files
+
+    Args:
+        controls (list): list of control files
+
+    Returns:
+        tuple: tuple of positive and negative control data
+    """
     for i in controls:
         if "positive" in i:
             if os.stat(i).st_size == 0:
@@ -114,14 +149,14 @@ def main():
         metadata_table_list=read_patient_info(args.info, args.barcode)
                 
         for patient in metadata_table_list:
+            # Restructure the metadata table
             restructured=[]
             for index, row in patient.iloc[[0,2,1,4,6,7,10]].iterrows():
-                print(row['Metadata'])
-                print(row['Sample Information'])
                 restructured.append(": ".join([str(row['Metadata']), str(row['Sample Information'])]))
             restructured.insert(4, " ".join(["Sequencing start:", args.seq_start]))
             rest_df=pd.DataFrame(list(zip(restructured[:4],restructured[4:])), columns=['Sample Information', 'Time Stamps'])
 
+            # Generate the report
             title="Patient " + patient.iloc[0,1] + " Report"
             reprt = report.UoSReport(
                 title=title, report_template=args.report_template, about=False, style='UoS', logo=args.logo)
@@ -157,6 +192,7 @@ def main():
         restructured.insert(4, " ".join(["Sequencing start:", args.seq_start]))
         rest_df=pd.DataFrame(list(zip(restructured[:4],restructured[4:])), columns=['Sample Information', 'Time Stamps'])
 
+        # Create the title for the report
         title="Patient " + metadata_table.iloc[0,1] + " Report"
 
         if args.infile == "input.1":
