@@ -7,29 +7,27 @@ import os.path
 import csv
 
 def process_metadata(file):
+    """process metadata file to create list of barcodes and names of positive and negative controls"""
     meta=pd.read_excel(file, usecols=range(0,6))
     barcodes=[]
     for index, row in meta.iterrows():
-        if row['Status'] not in ['discontinued', 'positive control', 'negative control']:
+        if row['Status'] not in ['discontinued']:
             barcodes.append(row['Barcode'])
 
     if 'positive control' in set(meta['Status']):
-        print("true")
         positive_ctrl='rel_abundance_'+ meta.loc[meta['Status'] == 'positive control', 'Barcode'].item() + '_S.csv'
     else:
         positive_ctrl="none"
 
     if 'negative control' in set(meta['Status']):
-        print("true")
         negative_ctrl='rel_abundance_'+ meta.loc[meta['Status'] == 'negative control', 'Barcode'].item() + '_S.csv'
     else: 
         negative_ctrl="none"
 
-    print(positive_ctrl)
-    print(negative_ctrl)
     return positive_ctrl, negative_ctrl, barcodes
-
+    
 def output_meta(pos, neg):
+    """output positive and negative control files"""
     if os.path.exists(pos):
         shutil.copyfile(pos, "positive_control.csv")
     else:
