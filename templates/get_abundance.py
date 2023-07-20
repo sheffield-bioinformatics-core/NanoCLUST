@@ -64,8 +64,8 @@ def get_abundance_values(names,paths):
 
 def choose_classification(dataframe):
     print(dataframe)
-    chosen_frame=[]
     if len(dataframe.columns)>13:
+        chosen_frame=[]
         classification_score={}
         for index, row in dataframe.iterrows():
             print(row['class_level'])
@@ -86,14 +86,16 @@ def choose_classification(dataframe):
             
         print("choosing classification")
 
-    print(chosen_frame)
-    chosen_df=pd.DataFrame(chosen_frame, columns=['reads_in_cluster', 'used_for_consensus', 'reads_after_corr', 'draft_id', 'classifier_name', 'taxid', 'stat', 'name', 'species', 'genus', 'family', 'order'])
-    print(len(chosen_df))
-    print(chosen_df)
+        print(chosen_frame)
+        chosen_df=pd.DataFrame(chosen_frame, columns=['reads_in_cluster', 'used_for_consensus', 'reads_after_corr', 'draft_id', 'classifier_name', 'taxid', 'stat', 'name', 'species', 'genus', 'family', 'order'])
+        print(len(chosen_df))
+        print(chosen_df)
     # renamed_df=chosen_df.rename(columns={chosen_df.columns[5]: 'taxid'})
     # print(renamed_df)
 
-    return chosen_df
+        return chosen_df
+    else:
+        return dataframe
 
 def merge_abundance(dfs, data, tax_level):
     df_final = reduce(lambda left,right: pd.merge(left,right,on='taxid',how='outer').fillna(0), dfs)
