@@ -588,13 +588,18 @@ process consensus_classification {
         if [ -s seqmatch_consensus_classification.csv ]; then
             echo "success"
         else
-            echo "0;U" >> seqmatch_consensus_classification.csv
+            echo "unclassified;0;0" >> seqmatch_consensus_classification.csv
         fi
         SEQ_OUT=\$(head -n1 seqmatch_consensus_classification.csv)
 
         echo "classifying with blastn"
         export BLASTDB=\$(dirname $blast_db)
         blastn -query $consensus -db \$(basename $blast_db) -task megablast -dust no -outfmt "10 sscinames staxids evalue length pident bitscore" -evalue 11 -max_hsps 50 -max_target_seqs 5 | sed 's/,/;/g' > blastn_consensus_classification.csv
+        if [ -s blastn_consensus_classification.csv ]; then
+            echo "success"
+        else
+            echo "unclassified;0;0" >> blastn_consensus_classification.csv
+        fi
         BLAST_OUT=\$(cut -d";" -f1,2,5 blastn_consensus_classification.csv | head -n1)
 
         FULL_OUT="\${KR_OUT}\n\${SEQ_OUT}\n\${BLAST_OUT}"
