@@ -93,12 +93,15 @@ if(params.demultiplex) {
 else if(params.demultiplex_porechop){
     Channel.fromPath(params.reads).set { multiplexed_reads_porechop }
 }
-else if(params.onGridIon) {
+else if(params.guppy_barcoder) {
     Channel.fromPath(params.reads, type:'dir').set { for_guppy_demux }
-    Channel.fromPath(["$workflow.launchDir/../report*.html", "$workflow.launchDir/../final_summary*.txt"]).set { metadata_files }
 }
 else{
-    Channel.fromPath(params.reads).set { reads }
+    Channel.fromPath(params.reads, type:'dir').set { pre_reads }
+}
+
+if(params.onGridIon) {
+    Channel.fromPath(["$workflow.launchDir/../report*.html", "$workflow.launchDir/../final_summary*.txt"]).set { metadata_files }
 }
 
 if(params.generateReports) {
@@ -249,9 +252,12 @@ if(params.onGridIon){
 
         script:
         """
-        if grep -q "Expansion kit" ${report}
+        if grep -q '"Expansion kit", "value":' ${report}
         then
-            kit=\$(grep "Expansion kit" ${report} -A1 | tail -n1| grep -oP '(?<=\\>).*?(?=\\<)')
+            kit=\$(grep '"Expansion kit", "value":' ${report} | grep -o -P 'Expansion.{0,35}' | cut -d '"' -f5)
+        # elif grep -q "Expansion kit" ${report}
+        # then
+        #     kit=\$(grep "Expansion kit" ${report} -A1 | tail -n1| grep -oP '(?<=\\>).*?(?=\\<)')
         else
             kit=\$(grep '"Kit type", "value":' ${report} | grep -o -P 'Kit.{0,35}' | cut -d '"' -f5)
             
@@ -264,23 +270,49 @@ if(params.onGridIon){
         """
 
     }
+    if(params.guppy_barcoder){
+        process guppy_barcoder {
+            publishDir "${params.outdir}/guppy_demux", mode: 'copy'
 
-    process guppy_barcoder {
-        publishDir "${params.outdir}/guppy_demux", mode: 'copy'
+            input:
+            file(reads) from for_guppy_demux
+            tuple val(kit), val(run_id), val(seq_start) from barcoding_kit.collect()
 
-        input:
-        file(reads) from for_guppy_demux
-        tuple val(kit), val(run_id), val(seq_start) from barcoding_kit.collect()
+            output:
+            file("barcode*.fastq") into reads mode flatten
 
-        output:
-        file("barcode*.fastq") into reads mode flatten
-
-        script:
-        """
-        guppy_barcoder -i $reads -s . -r --barcode_kits ${kit} --require_barcodes_both_ends -x cuda:0
-        for i in barcode*; do cat \$i/* > \$i.fastq; done
-        """
+            script:
+            """
+            guppy_barcoder -i $reads -s . -r --barcode_kits ${kit} --require_barcodes_both_ends -x cuda:0
+            for i in barcode*; do cat \$i/* > \$i.fastq; done
+            """
+        }
     }
+    
+}
+
+process cat_fastqs {
+    input:
+    path(pre_reads) from pre_reads
+
+    output:
+    file("*.fastq.gz") into reads mode flatten
+
+    script:
+    """
+    for i in ${pre_reads}/barcode*; do
+        barcode=\$(basename \$i)
+        output_file=\$barcode\\.fastq.gz
+    
+        if find \$i -name '*.fastq.gz' -type f -print -quit 2>/dev/null; then
+            cat \$i/*.fastq.gz > \$output_file
+        elif find \$i -name '*.fastq' -type f -print -quit 2>/dev/null; then
+            cat \$i/*.fastq | gzip -c --best > \$output_file
+        fi
+    done
+
+
+    """
 }
 
 process QC {
