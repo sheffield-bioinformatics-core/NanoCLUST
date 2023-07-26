@@ -304,9 +304,9 @@ process cat_fastqs {
         barcode=\$(basename \$i)
         output_file=\$barcode\\.fastq.gz
     
-        if find \$i -name '*.fastq.gz' -type f -print -quit 2>/dev/null; then
+        if find \$i -name '*.fastq.gz' -type f -print -quit 2>/dev/null | grep -q '.'; then
             cat \$i/*.fastq.gz > \$output_file
-        elif find \$i -name '*.fastq' -type f -print -quit 2>/dev/null; then
+        elif find \$i -name '*.fastq' -type f -print -quit 2>/dev/null | grep -q '.'; then
             cat \$i/*.fastq | gzip -c --best > \$output_file
         fi
     done
