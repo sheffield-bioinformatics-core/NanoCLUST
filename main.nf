@@ -430,7 +430,8 @@ process split_by_cluster {
     script:
     """
     sed 's/\\srunid.*//g' $qced_reads > only_id_header_readfile.fastq
-    CLUSTERS_CNT=\$(awk '(\$5 ~ /[0-9]/) {print \$5}' $clusters | sort -nr | uniq | head -n1)
+    CLUSTERS=\$(awk '(\$5 ~ /[0-9]/) {print \$5}' $clusters | sort -nr | uniq )
+    CLUSTERS_CNT=\$(echo \$CLUSTERS | awk '{print \$1}')
 
     for ((i = 0 ; i <= \$CLUSTERS_CNT ; i++));
     do
